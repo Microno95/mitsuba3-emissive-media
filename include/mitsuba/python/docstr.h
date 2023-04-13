@@ -4322,6 +4322,8 @@ static const char *__doc_mitsuba_Medium_get_scattering_coefficients =
 R"doc(Returns the medium coefficients Sigma_s, Sigma_n and Sigma_t evaluated
 at a given MediumInteraction mi)doc";
 
+static const char *__doc_mitsuba_Medium_get_radiance = R"doc(Returns the medium's radiance used for emissive media)doc";
+
 static const char *__doc_mitsuba_Medium_has_spectral_extinction = R"doc(Returns whether this medium has a spectrally varying extinction)doc";
 
 static const char *__doc_mitsuba_Medium_id = R"doc(Return a string identifier)doc";

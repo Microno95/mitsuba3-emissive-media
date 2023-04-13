@@ -198,6 +198,13 @@ public:
         return { sigmas, sigman, sigmat };
     }
 
+    UnpolarizedSpectrum
+    get_radiance(const MediumInteraction3f & /* mi */,
+                 Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::MediumEvaluate, active);
+        return dr::zeros<UnpolarizedSpectrum>();
+    }
+
     std::tuple<Mask, Float, Float>
     intersect_aabb(const Ray3f &ray) const override {
         return m_sigmat->bbox().ray_intersect(ray);
@@ -206,9 +213,9 @@ public:
     std::string to_string() const override {
         std::ostringstream oss;
         oss << "HeterogeneousMedium[" << std::endl
-            << "  albedo  = " << string::indent(m_albedo) << std::endl
-            << "  sigma_t = " << string::indent(m_sigmat) << std::endl
-            << "  scale   = " << string::indent(m_scale) << std::endl
+            << "  albedo   = " << string::indent(m_albedo) << std::endl
+            << "  sigma_t  = " << string::indent(m_sigmat) << std::endl
+            << "  scale    = " << string::indent(m_scale) << std::endl
             << "]";
         return oss.str();
     }

@@ -168,7 +168,7 @@ public:
 
     MI_INLINE std::tuple<Float, Float, Float>
     medium_probabilities_analog(UnpolarizedSpectrum radiance,
-                                UnpolarizedSpectrum sigma_s,
+                                UnpolarizedSpectrum /*sigma_s*/,
                                 UnpolarizedSpectrum sigma_n,
                                 UnpolarizedSpectrum sigma_t,
                                 UInt32 &channel) const {
@@ -183,7 +183,7 @@ public:
     medium_probabilities_max(UnpolarizedSpectrum radiance,
                              UnpolarizedSpectrum sigma_s,
                              UnpolarizedSpectrum sigma_n,
-                             UnpolarizedSpectrum sigma_t,
+                             UnpolarizedSpectrum /*sigma_t*/,
                              const UnpolarizedSpectrum &throughput) const {
         Float prob_e = 0.f, prob_s = 0.f, prob_n = 0.f;
         prob_e = dr::maximum(dr::max(dr::abs(radiance * throughput)), dr::max(dr::abs(radiance)));
@@ -196,7 +196,7 @@ public:
     medium_probabilities_mean(UnpolarizedSpectrum radiance,
                               UnpolarizedSpectrum sigma_s,
                               UnpolarizedSpectrum sigma_n,
-                              UnpolarizedSpectrum sigma_t,
+                              UnpolarizedSpectrum /*sigma_t*/,
                               const UnpolarizedSpectrum &throughput) const {
         Float prob_e = 0.f, prob_s = 0.f, prob_n = 0.f;
         prob_e = (0.5f * dr::mean(dr::abs(radiance * throughput)) + 0.5f * dr::mean(dr::abs(radiance)));
@@ -289,7 +289,7 @@ public:
 
                 // Compute emission, scatter and null event probabilities
                 auto [probabilities, weights] = medium_probabilities(
-                    0.f,
+                     medium->get_radiance(mei, active_medium),
                      unpolarized_spectrum(mei.sigma_s),
                      unpolarized_spectrum(mei.sigma_n),
                      unpolarized_spectrum(mei.sigma_t),
@@ -307,7 +307,7 @@ public:
 
                 if (dr::any_or<true>(act_null_scatter))
                 {
-                    dr::masked(result, act_null_scatter) += weight_emission * throughput * 0.f;
+                    dr::masked(result, act_null_scatter)     += weight_emission * throughput * medium->get_radiance(mei, active_medium);
                     dr::masked(throughput, act_null_scatter) *= mei.sigma_n * weight_null;
 
                     // Move the ray along
