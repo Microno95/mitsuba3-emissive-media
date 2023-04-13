@@ -10,13 +10,19 @@ NAMESPACE_BEGIN(mitsuba)
 MI_VARIANT Medium<Float, Spectrum>::Medium() : m_is_homogeneous(false), m_has_spectral_extinction(true) {}
 
 MI_VARIANT Medium<Float, Spectrum>::Medium(const Properties &props) : m_id(props.id()) {
-
     for (auto &[name, obj] : props.objects(false)) {
         auto *phase = dynamic_cast<PhaseFunction *>(obj.get());
         if (phase) {
             if (m_phase_function)
                 Throw("Only a single phase function can be specified per medium");
             m_phase_function = phase;
+            props.mark_queried(name);
+        }
+        auto *emitter = dynamic_cast<Emitter *>(obj.get());
+        if (emitter) {
+            if (m_emitter)
+                Throw("Only a single emitter can be specified per medium");
+            m_emitter = emitter;
             props.mark_queried(name);
         }
     }
@@ -29,6 +35,7 @@ MI_VARIANT Medium<Float, Spectrum>::Medium(const Properties &props) : m_id(props
     m_sample_emitters = props.get<bool>("sample_emitters", true);
     dr::set_attr(this, "use_emitter_sampling", m_sample_emitters);
     dr::set_attr(this, "phase_function", m_phase_function.get());
+    dr::set_attr(this, "emitter", m_emitter.get());
 }
 
 MI_VARIANT Medium<Float, Spectrum>::~Medium() {}
@@ -93,6 +100,26 @@ Medium<Float, Spectrum>::transmittance_eval_pdf(const MediumInteraction3f &mi,
     UnpolarizedSpectrum tr  = dr::exp(-t * mi.combined_extinction);
     UnpolarizedSpectrum pdf = dr::select(si.t < mi.t, tr, tr * mi.combined_extinction);
     return { tr, pdf };
+}
+
+MI_VARIANT
+typename Medium<Float, Spectrum>::UnpolarizedSpectrum
+Medium<Float, Spectrum>::get_radiance(const MediumInteraction3f &mi,
+                                      Mask active) const {
+    MI_MASKED_FUNCTION(ProfilerPhase::MediumEvaluate, active);
+    if (!is_emitter())
+        return dr::zeros<UnpolarizedSpectrum>();
+    auto si = dr::zeros<SurfaceInteraction3f>();
+
+    si.p = mi.p;
+    si.n = mi.n;
+    si.sh_frame = mi.sh_frame;
+    si.uv = dr::zeros<Point2f>();
+    si.time = mi.time;
+    si.t = mi.t;
+    si.wavelengths = mi.wavelengths;
+
+    return dr::zeros<UnpolarizedSpectrum>() + 0.1f; // TODO: Add volume light for sampling via unpolarized_spectrum(m_emitter->eval(si, active));
 }
 
 MI_IMPLEMENT_CLASS_VARIANT(Medium, Object, "medium")

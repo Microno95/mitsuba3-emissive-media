@@ -26,10 +26,6 @@ public:
         PYBIND11_OVERRIDE_PURE(Return, Medium, get_scattering_coefficients, mi, active);
     }
 
-    UnpolarizedSpectrum get_radiance(const MediumInteraction3f &mi, Mask active = true) const override {
-        PYBIND11_OVERRIDE_PURE(UnpolarizedSpectrum, Medium, get_radiance, mi, active);
-    }
-
     std::string to_string() const override {
         PYBIND11_OVERRIDE_PURE(std::string, Medium, to_string, );
     }

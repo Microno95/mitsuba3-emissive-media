@@ -178,13 +178,6 @@ public:
         return { sigmas & active, sigman, sigmat & active };
     }
 
-    UnpolarizedSpectrum
-    get_radiance(const MediumInteraction3f & /* mi */,
-                 Mask active) const override {
-        MI_MASKED_FUNCTION(ProfilerPhase::MediumEvaluate, active);
-        return dr::zeros<UnpolarizedSpectrum>();
-    }
-
     std::tuple<Mask, Float, Float>
     intersect_aabb(const Ray3f & /* ray */) const override {
         return { true, 0.f, dr::Infinity<Float> };

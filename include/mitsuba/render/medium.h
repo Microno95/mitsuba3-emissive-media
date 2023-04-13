@@ -30,9 +30,9 @@ public:
                                 Mask active = true) const = 0;
 
     /// Returns the medium's radiance used for emissive media
-    virtual UnpolarizedSpectrum
+    UnpolarizedSpectrum
     get_radiance(const MediumInteraction3f &mi,
-                 Mask active = true) const = 0;
+                 Mask active = true) const;
 
     /**
      * \brief Sample a free-flight distance in the medium.
@@ -80,11 +80,19 @@ public:
         return m_phase_function.get();
     }
 
+    /// Return the emitter of this medium
+    MI_INLINE const Emitter *emitter() const {
+        return m_emitter.get();
+    }
+
     /// Returns whether this specific medium instance uses emitter sampling
     MI_INLINE bool use_emitter_sampling() const { return m_sample_emitters; }
 
     /// Returns whether this medium is homogeneous
     MI_INLINE bool is_homogeneous() const { return m_is_homogeneous; }
+
+    /// Returns whether this medium is homogeneous
+    MI_INLINE bool is_emitter() const { return m_emitter.get() != nullptr; }
 
     /// Returns whether this medium has a spectrally varying extinction
     MI_INLINE bool has_spectral_extinction() const {
@@ -112,6 +120,7 @@ protected:
 
 protected:
     ref<PhaseFunction> m_phase_function;
+    ref<Emitter> m_emitter;
     bool m_sample_emitters, m_is_homogeneous, m_has_spectral_extinction;
 
     /// Identifier (if available)
@@ -127,8 +136,10 @@ NAMESPACE_END(mitsuba)
 
 DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Medium)
     DRJIT_VCALL_GETTER(phase_function, const typename Class::PhaseFunction*)
+    DRJIT_VCALL_GETTER(emitter, const typename Class::Emitter*)
     DRJIT_VCALL_GETTER(use_emitter_sampling, bool)
     DRJIT_VCALL_GETTER(is_homogeneous, bool)
+    DRJIT_VCALL_GETTER(is_emitter, bool)
     DRJIT_VCALL_GETTER(has_spectral_extinction, bool)
     DRJIT_VCALL_METHOD(get_majorant)
     DRJIT_VCALL_METHOD(get_radiance)
