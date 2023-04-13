@@ -1,3 +1,5 @@
+#include <mutex>
+
 #include <mitsuba/core/plugin.h>
 #include <mitsuba/core/properties.h>
 #include <mitsuba/render/medium.h>
@@ -119,7 +121,18 @@ Medium<Float, Spectrum>::get_radiance(const MediumInteraction3f &mi,
     si.t = mi.t;
     si.wavelengths = mi.wavelengths;
 
-    return dr::zeros<UnpolarizedSpectrum>() + 0.1f; // TODO: Add volume light for sampling via unpolarized_spectrum(m_emitter->eval(si, active));
+    return unpolarized_spectrum(m_emitter->eval(si, active));
+}
+
+static std::mutex set_dependency_lock_medium;
+
+MI_VARIANT void Medium<Float, Spectrum>::set_emitter(Emitter* emitter) {
+    std::unique_lock<std::mutex> guard(set_dependency_lock_medium);
+    if (m_emitter)
+        Throw("A medium can only have one emitter attached");
+
+    m_emitter = emitter;
+    dr::set_attr(this, "emitter", m_emitter.get());
 }
 
 MI_IMPLEMENT_CLASS_VARIANT(Medium, Object, "medium")

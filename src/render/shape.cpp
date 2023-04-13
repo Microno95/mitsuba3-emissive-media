@@ -69,6 +69,15 @@ MI_VARIANT Shape<Float, Spectrum>::Shape(const Properties &props) : m_id(props.i
         m_bsdf = PluginManager::instance()->create_object<BSDF>(props2);
     }
 
+    if (m_emitter && has_flag(m_emitter->flags(), EmitterFlags::Medium)) {
+        if (!m_interior_medium) {
+            Properties props2("homogeneous");
+            props2.set_array3f("sigma_t", { 1.f, 1.f, 1.f });
+            m_interior_medium =
+                PluginManager::instance()->create_object<Medium>(props2);
+        }
+    }
+
     m_silhouette_sampling_weight = props.get<ScalarFloat>("silhouette_sampling_weight", 1.0f);
 
     dr::set_attr(this, "emitter", m_emitter.get());
@@ -630,8 +639,17 @@ MI_VARIANT void Shape<Float, Spectrum>::initialize() {
     }
 
     // Explicitly register this shape as the parent of the provided sub-objects
-    if (m_emitter)
+    if (m_emitter) {
         m_emitter->set_shape(this);
+        if (has_flag(m_emitter->flags(), EmitterFlags::Medium)) {
+            if (!m_interior_medium) {
+                Properties props2("homogeneous");
+                props2.set_array3f("sigma_t", { 1.f, 1.f, 1.f });
+                m_interior_medium = PluginManager::instance()->create_object<Medium>(props2);
+            }
+            m_interior_medium->set_emitter(m_emitter);
+        }
+    }
     if (m_sensor)
         m_sensor->set_shape(this);
 

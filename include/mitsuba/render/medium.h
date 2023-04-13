@@ -91,13 +91,16 @@ public:
     /// Returns whether this medium is homogeneous
     MI_INLINE bool is_homogeneous() const { return m_is_homogeneous; }
 
-    /// Returns whether this medium is homogeneous
+    /// Returns whether this medium is emitting
     MI_INLINE bool is_emitter() const { return m_emitter.get() != nullptr; }
 
     /// Returns whether this medium has a spectrally varying extinction
     MI_INLINE bool has_spectral_extinction() const {
         return m_has_spectral_extinction;
     }
+
+    /// Returns whether this medium is homogeneous
+    void set_emitter(Emitter* emitter);
 
     void traverse(TraversalCallback *callback) override;
 

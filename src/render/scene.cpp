@@ -32,7 +32,7 @@ MI_VARIANT Scene<Float, Spectrum>::Scene(const Properties &props) {
             m_children.push_back(v.get());
 
         if (shape) {
-            if (shape->is_emitter())
+            if (shape->is_emitter() && !has_flag(shape->emitter()->flags(), EmitterFlags::Medium))
                 m_emitters.push_back(shape->emitter());
             if (shape->is_sensor())
                 m_sensors.push_back(shape->sensor());
@@ -46,7 +46,7 @@ MI_VARIANT Scene<Float, Spectrum>::Scene(const Properties &props) {
                 mesh->set_scene(this);
         } else if (emitter) {
             // Surface emitters will be added to the list when attached to a shape
-            if (!has_flag(emitter->flags(), EmitterFlags::Surface))
+            if (!has_flag(emitter->flags(), EmitterFlags(EmitterFlags::Surface | EmitterFlags::Medium)))
                 m_emitters.push_back(emitter);
 
             if (emitter->is_environment()) {
