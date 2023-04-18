@@ -12,6 +12,43 @@ def index_spectrum(spec, idx):
         m[dr.eq(idx, 2)] = spec[2]
     return m
 
+
+def medium_probabilities_analog(radiance: mi.UnpolarizedSpectrum,
+                                sigma_s: mi.UnpolarizedSpectrum,
+                                sigma_n: mi.UnpolarizedSpectrum,
+                                sigma_t: mi.UnpolarizedSpectrum,
+                                channel: mi.UInt32):
+    prob_e = index_spectrum(radiance, channel)
+    prob_s = index_spectrum(sigma_t, channel)
+    prob_n = index_spectrum(sigma_n, channel)
+
+    return prob_e, prob_s, prob_n
+
+
+def medium_probabilities_max(radiance: mi.UnpolarizedSpectrum,
+                             sigma_s: mi.UnpolarizedSpectrum,
+                             sigma_n: mi.UnpolarizedSpectrum,
+                             sigma_t: mi.UnpolarizedSpectrum,
+                             throughput: mi.UnpolarizedSpectrum):
+    prob_e = dr.max(dr.abs(radiance * dr.maximum(1.0, throughput)))
+    prob_s = dr.max(dr.abs(sigma_t))
+    prob_n = dr.max(dr.abs(sigma_n))
+
+    return prob_e, prob_s, prob_n
+
+
+def medium_probabilities_mean(radiance: mi.UnpolarizedSpectrum,
+                              sigma_s: mi.UnpolarizedSpectrum,
+                              sigma_n: mi.UnpolarizedSpectrum,
+                              sigma_t: mi.UnpolarizedSpectrum,
+                              throughput: mi.UnpolarizedSpectrum):
+    prob_e = dr.mean(dr.abs(radiance * (0.5 + 0.5 * throughput)))
+    prob_s = dr.mean(dr.abs(sigma_t))
+    prob_n = dr.mean(dr.abs(sigma_n))
+
+    return prob_e, prob_s, prob_n
+
+
 class PRBVolpathIntegrator(RBIntegrator):
     r"""
     .. _integrator-prbvolpath:
@@ -72,6 +109,11 @@ class PRBVolpathIntegrator(RBIntegrator):
     """
     def __init__(self, props=mi.Properties()):
         super().__init__(props)
+        self.max_depth = props.get('max_depth', -1)
+        self.rr_depth = props.get('rr_depth', 5)
+        self.hide_emitters = props.get('hide_emitters', False)
+        self.event_sampling_mode = props.get('event_sampling_mode', "max")
+
         self.use_nee = False
         self.nee_handle_homogeneous = False
         self.handle_null_scattering = False
@@ -87,10 +129,50 @@ class PRBVolpathIntegrator(RBIntegrator):
                     # Enable NEE if a medium specifically asks for it
                     self.use_nee = self.use_nee or medium.use_emitter_sampling()
                     self.nee_handle_homogeneous = self.nee_handle_homogeneous or medium.is_homogeneous()
-                    self.handle_null_scattering = self.handle_null_scattering or (not medium.is_homogeneous())
+                    self.handle_null_scattering = self.handle_null_scattering or (not medium.is_homogeneous()) or medium.is_emitter()
         self.is_prepared = True
         # By default enable always NEE in case there are surfaces
         self.use_nee = True
+
+    def medium_probabilities(self,
+                             radiance: mi.UnpolarizedSpectrum,
+                             sigma_s: mi.UnpolarizedSpectrum,
+                             sigma_n: mi.UnpolarizedSpectrum,
+                             sigma_t: mi.UnpolarizedSpectrum,
+                             throughput: mi.UnpolarizedSpectrum,
+                             channel: mi.UInt32):
+        emission_prob, scatter_prob, null_prob = dr.zeros(mi.Float), dr.zeros(mi.Float), dr.zeros(mi.Float)
+        emission_weight, scatter_weight, null_weight = dr.zeros(mi.Float), dr.zeros(mi.Float), dr.zeros(mi.Float)
+
+        if self.event_sampling_mode == "analogue":
+            emission_prob, scatter_prob, null_prob = medium_probabilities_analog(radiance, sigma_s, sigma_n, sigma_t, channel)
+        elif self.event_sampling_mode == "max":
+            emission_prob, scatter_prob, null_prob = medium_probabilities_max(radiance, sigma_s, sigma_n, sigma_t, throughput)
+        elif self.event_sampling_mode == "mean":
+            emission_prob, scatter_prob, null_prob = medium_probabilities_mean(radiance, sigma_s, sigma_n, sigma_t, throughput)
+
+        emission_prob[dr.max(radiance) > 0] = 1
+        c = emission_prob + scatter_prob + null_prob
+
+        scatter_prob[dr.eq(c, 0.0)] = 1
+        c[dr.eq(c, 0.0)] = 1
+
+        emission_prob = emission_prob / dr.detach(c)
+        null_prob = null_prob / dr.detach(c)
+        scatter_prob = scatter_prob / dr.detach(c)
+
+        emission_weight[emission_prob > 0.0] = dr.rcp(emission_prob)
+        null_weight[null_prob > 0.0] = dr.rcp(null_prob)
+        scatter_weight[scatter_prob > 0.0] = dr.rcp(scatter_prob)
+
+        emission_weight[~dr.eq(emission_weight, emission_weight) | ~(emission_weight < dr.inf)] = 0.0
+        null_weight[~dr.eq(null_weight, null_weight) | ~(null_weight < dr.inf)] = 0.0
+        scatter_weight[~dr.eq(scatter_weight, scatter_weight) | ~(scatter_weight < dr.inf)] = 0.0
+
+        return (
+            (emission_prob, scatter_prob, null_prob),
+            (emission_weight, scatter_weight, null_weight),
+        )
 
     def sample(self,
                mode: dr.ADMode,
@@ -180,12 +262,24 @@ class PRBVolpathIntegrator(RBIntegrator):
 
                 # Handle null and real scatter events
                 if self.handle_null_scattering:
-                    scatter_prob = index_spectrum(mei.sigma_t, channel) / index_spectrum(mei.combined_extinction, channel)
-                    act_null_scatter = (sampler.next_1d(active_medium) >= scatter_prob) & active_medium
-                    act_medium_scatter = ~act_null_scatter & active_medium
-                    weight[act_null_scatter] *= mei.sigma_n / dr.detach(1 - scatter_prob)
+                    radiance = medium.get_radiance(mei, active_medium)
+                    probabilities, weights = self.medium_probabilities(
+                        radiance,
+                        mi.unpolarized_spectrum(mei.sigma_s),
+                        mi.unpolarized_spectrum(mei.sigma_n),
+                        mi.unpolarized_spectrum(mei.sigma_t),
+                        mi.unpolarized_spectrum(throughput),
+                        channel
+                    )
+                    emission_prob, scatter_prob, null_prob = probabilities
+                    emission_weight, scatter_weight, null_weight = weights
+                    null_scatter = (sampler.next_1d(active_medium) < (emission_prob + null_prob))
+                    act_null_scatter = null_scatter & active_medium
+                    act_medium_scatter = ~null_scatter & active_medium
+                    L[act_null_scatter] += throughput * radiance * dr.detach(weight * emission_weight)
+                    weight[act_null_scatter] *= mei.sigma_n * dr.detach(null_weight)
                 else:
-                    scatter_prob = mi.Float(1.0)
+                    scatter_weight = mi.Float(1.0)
                     act_medium_scatter = active_medium
 
                 depth[act_medium_scatter] += 1
@@ -198,7 +292,7 @@ class PRBVolpathIntegrator(RBIntegrator):
                     ray.o[act_null_scatter] = dr.detach(mei.p)
                     si.t[act_null_scatter] = si.t - dr.detach(mei.t)
 
-                weight[act_medium_scatter] *= mei.sigma_s / dr.detach(scatter_prob)
+                weight[act_medium_scatter] *= mei.sigma_s * dr.detach(scatter_weight)
                 throughput *= dr.detach(weight)
 
                 mei = dr.detach(mei)
@@ -221,7 +315,7 @@ class PRBVolpathIntegrator(RBIntegrator):
                 ray_from_camera = active_surface & dr.eq(depth, 0)
                 count_direct = ray_from_camera | specular_chain
                 emitter = si.emitter(scene)
-                active_e = active_surface & dr.neq(emitter, None) & ~(dr.eq(depth, 0) & self.hide_emitters)
+                active_e = active_surface & dr.neq(emitter, None) & ~(dr.eq(depth, 0) & self.hide_emitters) & ~mi.has_flag(emitter.flags(), mi.EmitterFlags.Medium)
 
                 # Get the PDF of sampling this emitter using next event estimation
                 ds = mi.DirectionSample3f(scene, si, last_scatter_event)

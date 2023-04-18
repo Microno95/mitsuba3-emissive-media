@@ -74,6 +74,7 @@ public:
         m_flags = +EmitterFlags::Medium;
 
         dr::set_attr(this, "flags", m_flags);
+        dr::set_attr(this, "radiance", m_radiance);
     }
 
     void traverse(TraversalCallback *callback) override {
@@ -82,7 +83,6 @@ public:
 
     Spectrum eval(const SurfaceInteraction3f &si, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
-
         auto radiance = m_radiance->eval(si, active);
 
         return depolarizer<Spectrum>(radiance);

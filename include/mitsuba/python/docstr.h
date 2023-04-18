@@ -2417,6 +2417,8 @@ static const char *__doc_mitsuba_EmitterFlags_SpatiallyVarying = R"doc(The emiss
 
 static const char *__doc_mitsuba_EmitterFlags_Surface = R"doc(The emitter is attached to a surface (e.g. area emitters))doc";
 
+static const char *__doc_mitsuba_EmitterFlags_Medium = R"doc(The emitter is attached to a medium (e.g. medium emitters))doc";
+
 static const char *__doc_mitsuba_Emitter_Emitter = R"doc()doc";
 
 static const char *__doc_mitsuba_Emitter_class = R"doc()doc";
@@ -4332,6 +4334,8 @@ static const char *__doc_mitsuba_Medium_intersect_aabb = R"doc(Intersects a ray 
 
 static const char *__doc_mitsuba_Medium_is_homogeneous = R"doc(Returns whether this medium is homogeneous)doc";
 
+static const char *__doc_mitsuba_Medium_is_emitter = R"doc(Returns whether this medium is an emitter)doc";
+
 static const char *__doc_mitsuba_Medium_m_has_spectral_extinction = R"doc()doc";
 
 static const char *__doc_mitsuba_Medium_m_id = R"doc(Identifier (if available))doc";
@@ -4351,6 +4355,8 @@ static const char *__doc_mitsuba_Medium_operator_new = R"doc()doc";
 static const char *__doc_mitsuba_Medium_operator_new_2 = R"doc()doc";
 
 static const char *__doc_mitsuba_Medium_phase_function = R"doc(Return the phase function of this medium)doc";
+
+static const char *__doc_mitsuba_Medium_emitter = R"doc(Return the emitter associated with this medium)doc";
 
 static const char *__doc_mitsuba_Medium_sample_interaction =
 R"doc(Sample a free-flight distance in the medium.

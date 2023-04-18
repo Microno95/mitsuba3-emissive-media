@@ -264,6 +264,7 @@ Scene<Float, Spectrum>::sample_emitter_ray(Float time, Float sample1,
                                            const Point2f &sample3,
                                            Mask active) const {
     MI_MASKED_FUNCTION(ProfilerPhase::SampleEmitterRay, active);
+    // TODO: Add volume emitter ray sampling, requires an additional volume sample
 
 
     Ray3f ray;
@@ -300,7 +301,7 @@ MI_VARIANT std::pair<typename Scene<Float, Spectrum>::DirectionSample3f, Spectru
 Scene<Float, Spectrum>::sample_emitter_direction(const Interaction3f &ref, const Point2f &sample_,
                                                  bool test_visibility, Mask active) const {
     MI_MASKED_FUNCTION(ProfilerPhase::SampleEmitterDirection, active);
-
+    // TODO: Add volume emitter direction sampling, requires an additional volume sample
     Point2f sample(sample_);
     DirectionSample3f ds;
     Spectrum spec;

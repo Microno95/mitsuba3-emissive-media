@@ -49,12 +49,18 @@ template <typename Ptr, typename Cls> void bind_medium_generic(Cls &cls) {
     cls.def("phase_function",
             [](Ptr ptr) { return ptr->phase_function(); },
             D(Medium, phase_function))
+       .def("emitter",
+            [](Ptr ptr) { return ptr->emitter(); },
+            D(Medium, phase_function))
        .def("use_emitter_sampling",
             [](Ptr ptr) { return ptr->use_emitter_sampling(); },
             D(Medium, use_emitter_sampling))
        .def("is_homogeneous",
             [](Ptr ptr) { return ptr->is_homogeneous(); },
             D(Medium, is_homogeneous))
+       .def("is_emitter",
+            [](Ptr ptr) { return ptr->is_emitter(); },
+            D(Medium, is_emitter))
        .def("has_spectral_extinction",
             [](Ptr ptr) { return ptr->has_spectral_extinction(); },
             D(Medium, has_spectral_extinction))

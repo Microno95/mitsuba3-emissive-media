@@ -72,7 +72,6 @@ MI_VARIANT Shape<Float, Spectrum>::Shape(const Properties &props) : m_id(props.i
     if (m_emitter && has_flag(m_emitter->flags(), EmitterFlags::Medium)) {
         if (!m_interior_medium) {
             Properties props2("homogeneous");
-            props2.set_array3f("sigma_t", { 1.f, 1.f, 1.f });
             m_interior_medium =
                 PluginManager::instance()->create_object<Medium>(props2);
         }
