@@ -74,7 +74,6 @@ public:
         m_flags = +EmitterFlags::Medium;
 
         dr::set_attr(this, "flags", m_flags);
-        dr::set_attr(this, "radiance", m_radiance);
     }
 
     void traverse(TraversalCallback *callback) override {
