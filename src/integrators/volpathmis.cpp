@@ -228,16 +228,21 @@ public:
             }
 
             if (dr::any_or<true>(active_medium)) {
-                auto radiance = medium->get_radiance(mei, active_medium);
-                auto emission_prob = radiance * dr::mean(0.5f + 0.5f * mis_weight(p_over_f)),
-                     scatter_prob = mei.sigma_t,
-                     null_prob = mei.sigma_n;
-                dr::masked(emission_prob, dr::max(radiance) > 0.f) = 1.0f;
-                auto prob_sum = emission_prob + scatter_prob + null_prob;
+                if (dr::any_or<true>(not_spectral)) {
+                    update_weights(p_over_f, 1.0f, dr::rcp(mei.combined_extinction), channel, not_spectral);
+                    update_weights(p_over_f_nee, 1.0f, dr::rcp(mei.combined_extinction), channel, not_spectral);
+                }
 
-                Mask null_scatter = sampler->next_1d(active_medium) < (index_spectrum(emission_prob, channel) + index_spectrum(null_prob, channel)) / index_spectrum(prob_sum, channel);
+                // Compute emission, scatter and null event probabilities
+                auto radiance = medium->get_radiance(mei, active_medium);
+                auto [probabilities, weights] =
+                    medium->get_interaction_probabilities(radiance, mei, mis_weight(p_over_f));
+                auto [prob_scatter, prob_null] = probabilities;
+                auto [weight_scatter, weight_null] = weights;
+
+                Mask null_scatter = sampler->next_1d(active_medium) >= index_spectrum(prob_scatter, channel);
                 act_null_scatter |= null_scatter && active_medium;
-                act_medium_scatter |= !act_null_scatter && active_medium;
+                act_medium_scatter |= !null_scatter && active_medium;
                 last_event_was_null = act_null_scatter;
 
                 // Count this as a bounce
@@ -250,11 +255,10 @@ public:
                 specular_chain &= !act_medium_scatter;
                 specular_chain |= act_medium_scatter && !sample_emitters;
 
+                dr::masked(result, active_medium) += mis_weight(p_over_f) * radiance;
+
                 if (dr::any_or<true>(act_null_scatter)) {
-                    auto p_over_f_old = p_over_f;
-                    update_weights(p_over_f_old, emission_prob / prob_sum, 1.0f, channel, act_null_scatter);
-                    dr::masked(result, act_null_scatter) += mis_weight(p_over_f_old) * radiance;
-                    update_weights(p_over_f, null_prob / prob_sum, mei.sigma_n, channel, act_null_scatter);
+                    update_weights(p_over_f, prob_null, mei.sigma_n, channel, act_null_scatter);
                     update_weights(p_over_f_nee, 1.0f, mei.sigma_n, channel, act_null_scatter);
 
                     dr::masked(ray.o, act_null_scatter) = mei.p;
@@ -262,7 +266,7 @@ public:
                 }
 
                 if (dr::any_or<true>(act_medium_scatter)) {
-                    update_weights(p_over_f, scatter_prob / prob_sum, mei.sigma_s, channel, act_medium_scatter);
+                    update_weights(p_over_f, prob_scatter, mei.sigma_s, channel, act_medium_scatter);
 
                     PhaseFunctionContext phase_ctx(sampler);
                     auto phase = mei.medium->phase_function();

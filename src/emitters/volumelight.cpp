@@ -82,13 +82,11 @@ public:
 
     Spectrum eval(const SurfaceInteraction3f &si, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
-        auto radiance = m_radiance->eval(si, active);
-
-        return depolarizer<Spectrum>(radiance);
+        return m_radiance->eval(si, active);
     }
 
-    std::pair<Ray3f, Spectrum> sample_ray(Float time, Float wavelength_sample,
-                                          const Point2f &sample2, const Point2f &sample3,
+    std::pair<Ray3f, Spectrum> sample_ray(Float /*time*/, Float /*wavelength_sample*/,
+                                          const Point2f &/*sample2*/, const Point2f &/*sample3*/,
                                           Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
 
@@ -97,22 +95,22 @@ public:
     }
 
     std::pair<DirectionSample3f, Spectrum>
-    sample_direction(const Interaction3f &it, const Point2f &sample, Mask active) const override {
+    sample_direction(const Interaction3f &/*it*/, const Point2f &/*sample*/, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleDirection, active);
         Assert(m_shape, "Can't sample from a volume emitter without an associated Shape.");
 
         return { dr::zeros<DirectionSample3f>(), dr::zeros<Spectrum>() };
     }
 
-    Float pdf_direction(const Interaction3f &it, const DirectionSample3f &ds,
+    Float pdf_direction(const Interaction3f &/*it*/, const DirectionSample3f &/*ds*/,
                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
 
         return dr::zeros<Float>();
     }
 
-    Spectrum eval_direction(const Interaction3f &it,
-                            const DirectionSample3f &ds,
+    Spectrum eval_direction(const Interaction3f &/*it*/,
+                            const DirectionSample3f &/*ds*/,
                             Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
 
@@ -120,7 +118,7 @@ public:
     }
 
     std::pair<PositionSample3f, Float>
-    sample_position(Float time, const Point2f &sample,
+    sample_position(Float /*time*/, const Point2f &/*sample*/,
                     Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSamplePosition, active);
         Assert(m_shape, "Cannot sample from a volume emitter without an associated Shape.");
@@ -129,8 +127,8 @@ public:
     }
 
     std::pair<Wavelength, Spectrum>
-    sample_wavelengths(const SurfaceInteraction3f &si, Float sample,
-                       Mask active) const override {
+    sample_wavelengths(const SurfaceInteraction3f &/*si*/, Float /*sample*/,
+                       Mask /*active*/) const override {
         NotImplementedError("sample wavelengths not implemented for volume emitters!");
     }
 

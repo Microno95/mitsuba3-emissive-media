@@ -4324,6 +4324,10 @@ static const char *__doc_mitsuba_Medium_get_scattering_coefficients =
 R"doc(Returns the medium coefficients Sigma_s, Sigma_n and Sigma_t evaluated
 at a given MediumInteraction mi)doc";
 
+static const char *__doc_mitsuba_Medium_get_interaction_probabilities =
+    R"doc(Returns the real scatter event probability, and the
+weights of a real and null scattering event at a given MediumInteraction mi)doc";
+
 static const char *__doc_mitsuba_Medium_get_radiance = R"doc(Returns the medium's radiance used for emissive media)doc";
 
 static const char *__doc_mitsuba_Medium_has_spectral_extinction = R"doc(Returns whether this medium has a spectrally varying extinction)doc";
@@ -4403,6 +4407,22 @@ Returns:
 static const char *__doc_mitsuba_Medium_traverse = R"doc()doc";
 
 static const char *__doc_mitsuba_Medium_use_emitter_sampling = R"doc(Returns whether this specific medium instance uses emitter sampling)doc";
+
+static const char *__doc_mitsuba_MediumEventSamplingMode =
+    R"doc(This flag is used to determine how medium interaction events
+should be sampled)doc";
+
+static const char *__doc_mitsuba_MediumEventSamplingMode_Analogue =
+    R"doc(Uses conventional analogue probabilities that only take into account
+the local transmittance coefficient, null scattering coefficient and radiance.)doc";
+
+static const char *__doc_mitsuba_MediumEventSamplingMode_Maximum =
+    R"doc(Uses the maximum throughput achievable in both real and null
+scattering events to determine the interaction probabilities.)doc";
+
+static const char *__doc_mitsuba_MediumEventSamplingMode_Mean =
+    R"doc(Uses the mean throughput in both real and null
+scattering events to determine the interaction probabilities.)doc";
 
 static const char *__doc_mitsuba_MemoryMappedFile =
 R"doc(Basic cross-platform abstraction for memory mapped files

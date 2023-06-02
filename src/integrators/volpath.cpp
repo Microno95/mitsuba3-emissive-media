@@ -77,21 +77,8 @@ public:
     MI_IMPORT_TYPES(Scene, Sampler, Emitter, EmitterPtr, BSDF, BSDFPtr,
                      Medium, MediumPtr, PhaseFunctionContext)
 
-    enum VolumeEventProbabilityMode { Analogue, Maximum, Mean };
 
-    VolumetricPathIntegrator(const Properties &props) : Base(props) {
-        std::string sampling_mode = props.string("event_sampling_mode", "analogue");
-        if (sampling_mode == "analogue") {
-            m_sampling_mode = VolumeEventProbabilityMode::Analogue;
-        } else if (sampling_mode == "max") {
-            m_sampling_mode = VolumeEventProbabilityMode::Maximum;
-        } else if (sampling_mode == "mean") {
-            m_sampling_mode = VolumeEventProbabilityMode::Mean;
-        } else {
-            Log(Warn, "Event Sampling Type \"%s\" not recognised, defaulting to \"analogue\" sampling", sampling_mode);
-            m_sampling_mode = VolumeEventProbabilityMode::Analogue;
-        }
-    }
+    VolumetricPathIntegrator(const Properties &props) : Base(props) {}
 
     MI_INLINE
     Float index_spectrum(const UnpolarizedSpectrum &spec, const UInt32 &idx) const {
@@ -103,108 +90,6 @@ public:
             DRJIT_MARK_USED(idx);
         }
         return m;
-    }
-
-    MI_INLINE auto
-    medium_probabilities(UnpolarizedSpectrum radiance,
-                         UnpolarizedSpectrum sigma_s,
-                         UnpolarizedSpectrum sigma_n,
-                         UnpolarizedSpectrum sigma_t,
-                         const UnpolarizedSpectrum &throughput,
-                         UInt32 &channel,
-                         VolumeEventProbabilityMode probability_type = 0) const {
-        Float prob_emission, prob_scatter, prob_null, c;
-        Float weight_emission(0.0f), weight_scatter(0.0f), weight_null(0.0f);
-
-        if (probability_type == VolumeEventProbabilityMode::Analogue) {
-            std::tie(prob_emission, prob_scatter, prob_null) = medium_probabilities_analog(radiance,
-                                                                                           sigma_s,
-                                                                                           sigma_n,
-                                                                                           sigma_t, channel);
-        } else if (probability_type == VolumeEventProbabilityMode::Maximum) {
-            std::tie(prob_emission, prob_scatter, prob_null) = medium_probabilities_max(radiance,
-                                                                                        sigma_s,
-                                                                                        sigma_n,
-                                                                                        sigma_t, throughput);
-        } else if (probability_type == VolumeEventProbabilityMode::Mean) {
-            std::tie(prob_emission, prob_scatter, prob_null) = medium_probabilities_mean(radiance,
-                                                                                         sigma_s,
-                                                                                         sigma_n,
-                                                                                         sigma_t, throughput);
-        } else {
-            Throw("Invalid probability type:", "%i", probability_type);
-        }
-
-        dr::masked(prob_emission, dr::max(radiance) > 0.f) = 1.0f;
-
-        c = prob_emission + prob_scatter + prob_null;
-
-        // {
-        //     std::ostringstream oss;
-        //     oss << "[probability calculations 1]: (channel=" << channel << ") c = " << c << ", combined_extinction = " << mi.combined_extinction << " | {" << "p_e = " << prob_emission << ", " << "p_s = " << prob_scatter << ", " << "p_n = " << prob_null << "}";
-        //     Log(Info, "%s", oss.str());
-        // }
-
-        dr::masked(prob_scatter, dr::eq(c, 0.f)) = 1.0f;
-        dr::masked(c, dr::eq(c, 0.f))            = 1.0f;
-        prob_emission /= c;
-        prob_scatter  /= c;
-        prob_null     /= c;
-
-        // {
-        //     std::ostringstream oss;
-        //     oss << "[probability calculations 2]: {" << "p_e = " << prob_emission << ", " << "p_s = " << prob_scatter << ", " << "p_n = " << prob_null << "}";
-        //     Log(Info, "%s", oss.str());
-        // }
-
-        dr::masked(weight_emission, prob_emission > 0.f) = dr::rcp(prob_emission);
-        dr::masked(weight_scatter,  prob_scatter > 0.f)  = dr::rcp(prob_scatter);
-        dr::masked(weight_null,     prob_null > 0.f)     = dr::rcp(prob_null);
-
-        dr::masked(weight_emission, dr::neq(weight_emission, weight_emission) || !(weight_emission < dr::Infinity<Float>)) = 0.f;
-        dr::masked(weight_scatter,  dr::neq(weight_scatter, weight_scatter)   || !(weight_scatter < dr::Infinity<Float>))  = 0.f;
-        dr::masked(weight_null,     dr::neq(weight_null, weight_null)         || !(weight_null < dr::Infinity<Float>))     = 0.f;
-
-        return std::tuple{ std::tuple{prob_emission, prob_scatter, prob_null}, std::tuple{weight_emission, weight_scatter, weight_null} };
-    }
-
-    MI_INLINE std::tuple<Float, Float, Float>
-    medium_probabilities_analog(UnpolarizedSpectrum radiance,
-                                UnpolarizedSpectrum /*sigma_s*/,
-                                UnpolarizedSpectrum sigma_n,
-                                UnpolarizedSpectrum sigma_t,
-                                UInt32 &channel) const {
-        Float prob_e = 0.f, prob_s = 0.f, prob_n = 0.f;
-        prob_e = (index_spectrum(radiance, channel));
-        prob_s =  index_spectrum(sigma_t, channel);
-        prob_n =  index_spectrum(sigma_n, channel);
-        return { prob_e, prob_s, prob_n };
-    }
-
-    MI_INLINE std::tuple<Float, Float, Float>
-    medium_probabilities_max(UnpolarizedSpectrum radiance,
-                             UnpolarizedSpectrum sigma_s,
-                             UnpolarizedSpectrum sigma_n,
-                             UnpolarizedSpectrum /*sigma_t*/,
-                             const UnpolarizedSpectrum &throughput) const {
-        Float prob_e = 0.f, prob_s = 0.f, prob_n = 0.f;
-        prob_e = dr::max(dr::abs(radiance * dr::maximum(1.f, throughput)));
-        prob_s = dr::max(dr::abs( sigma_s * throughput));
-        prob_n = dr::max(dr::abs( sigma_n * throughput));
-        return { prob_e, prob_s, prob_n};
-    }
-
-    MI_INLINE std::tuple<Float, Float, Float>
-    medium_probabilities_mean(UnpolarizedSpectrum radiance,
-                              UnpolarizedSpectrum sigma_s,
-                              UnpolarizedSpectrum sigma_n,
-                              UnpolarizedSpectrum /*sigma_t*/,
-                              const UnpolarizedSpectrum &throughput) const {
-        Float prob_e = 0.f, prob_s = 0.f, prob_n = 0.f;
-        prob_e = dr::mean(dr::abs(radiance * (0.5f + 0.5f * throughput)));
-        prob_s = dr::mean(dr::abs( sigma_s * throughput));
-        prob_n = dr::mean(dr::abs( sigma_n * throughput));
-        return {prob_e, prob_s, prob_n} ;
     }
 
     std::pair<Spectrum, Mask> sample(const Scene *scene,
@@ -290,7 +175,6 @@ public:
                 needs_intersection &= !active_medium;
                 dr::masked(mei.t, active_medium && (si.t < mei.t)) = dr::Infinity<Float>;
 
-                auto prev_throughput = throughput;
                 if (dr::any_or<true>(is_spectral)) {
                     auto [tr, free_flight_pdf] = medium->transmittance_eval_pdf(mei, si, active_medium);
                     Float tr_pdf = index_spectrum(free_flight_pdf, channel);
@@ -301,30 +185,32 @@ public:
                 active_medium &= mei.is_valid();
                 is_spectral &= active_medium;
                 not_spectral &= active_medium;
+            }
+
+            if (dr::any_or<true>(active_medium)) {
+                if (dr::any_or<true>(not_spectral)) {
+                    dr::masked(throughput, not_spectral) *= dr::rcp(mei.combined_extinction);
+                }
 
                 // Compute emission, scatter and null event probabilities
+
                 auto radiance = medium->get_radiance(mei, active_medium);
-                auto [probabilities, weights] = medium_probabilities(
-                     radiance,
-                     unpolarized_spectrum(mei.sigma_s),
-                     unpolarized_spectrum(mei.sigma_n),
-                     unpolarized_spectrum(mei.sigma_t),
-                     unpolarized_spectrum(prev_throughput),
-                     channel,
-                     m_sampling_mode);
-                auto [emission_prob, scatter_prob, null_prob] = probabilities;
-                auto [weight_emission, weight_scatter, weight_null] = weights;
+                auto [probabilities, weights] =
+                    medium->get_interaction_probabilities(radiance, mei, throughput);
+                auto [prob_scatter, prob_null] = probabilities;
+                auto [weight_scatter, weight_null] = weights;
 
                 // Handle null and real scatter events
-                Mask null_scatter = sampler->next_1d(active_medium) < (emission_prob + null_prob);
+                Mask null_scatter = sampler->next_1d(active_medium) >= index_spectrum(prob_scatter, channel);
 
-                act_null_scatter   =  null_scatter && active_medium;
-                act_medium_scatter = !null_scatter && active_medium;
+                act_null_scatter   |=  null_scatter && active_medium;
+                act_medium_scatter |= !null_scatter && active_medium;
+
+                dr::masked(result, active_medium) += throughput * radiance;
 
                 if (dr::any_or<true>(act_null_scatter))
                 {
-                    dr::masked(result, act_null_scatter && (dr::max(radiance) > 0.f)) += weight_emission * throughput * radiance;
-                    dr::masked(throughput, is_spectral && act_null_scatter) *= weight_null * mei.sigma_n;
+                    dr::masked(throughput, act_null_scatter) *= index_spectrum(weight_null, channel) * mei.sigma_n;
 
                     // Move the ray along
                     dr::masked(ray.o, act_null_scatter)    = mei.p;
@@ -339,7 +225,7 @@ public:
                 act_medium_scatter &= active;
 
                 if (dr::any_or<true>(act_medium_scatter)) {
-                    masked(throughput, act_medium_scatter) *= weight_scatter * mei.sigma_s;
+                    dr::masked(throughput, act_medium_scatter) *= index_spectrum(weight_scatter, channel) * mei.sigma_s;
 
                     PhaseFunctionContext phase_ctx(sampler);
                     auto phase = mei.medium->phase_function();
@@ -590,8 +476,6 @@ public:
     };
 
     MI_DECLARE_CLASS()
-protected:
-    VolumeEventProbabilityMode m_sampling_mode;
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(VolumetricPathIntegrator, MonteCarloIntegrator);

@@ -35,9 +35,22 @@ MI_VARIANT Medium<Float, Spectrum>::Medium(const Properties &props) : m_id(props
         m_phase_function =
             PluginManager::instance()->create_object<PhaseFunction>(Properties("isotropic"));
     }
+    
+    std::string sampling_mode = props.string("medium_sampling_mode", "analogue");
+    if (sampling_mode == "analogue") {
+        m_medium_sampling_mode = MediumEventSamplingMode::Analogue;
+    } else if (sampling_mode == "maximum") {
+        m_medium_sampling_mode = MediumEventSamplingMode::Maximum;
+    } else if (sampling_mode == "mean") {
+        m_medium_sampling_mode = MediumEventSamplingMode::Mean;
+    } else {
+        Log(Warn, "Event Sampling Mode \"%s\" not recognised, defaulting to \"analogue\" sampling", sampling_mode);
+        m_medium_sampling_mode = MediumEventSamplingMode::Analogue;
+    }
 
     m_sample_emitters = props.get<bool>("sample_emitters", true);
     dr::set_attr(this, "use_emitter_sampling", m_sample_emitters);
+    dr::set_attr(this, "medium_sampling_mode", m_medium_sampling_mode);
     dr::set_attr(this, "phase_function", m_phase_function.get());
     dr::set_attr(this, "emitter", m_emitter.get());
 }
@@ -124,6 +137,50 @@ Medium<Float, Spectrum>::get_radiance(const MediumInteraction3f &mi,
     si.wavelengths = mi.wavelengths;
 
     return unpolarized_spectrum(m_emitter->eval(si, active));
+}
+
+MI_VARIANT
+std::tuple<std::pair<typename Medium<Float, Spectrum>::UnpolarizedSpectrum,
+                     typename Medium<Float, Spectrum>::UnpolarizedSpectrum>,
+           std::pair<typename Medium<Float, Spectrum>::UnpolarizedSpectrum,
+                     typename Medium<Float, Spectrum>::UnpolarizedSpectrum>>
+Medium<Float, Spectrum>::get_interaction_probabilities(const Spectrum &radiance,
+                                                  const MediumInteraction3f &mei,
+                                                  const Spectrum &throughput) const {
+    UnpolarizedSpectrum prob_scatter, prob_null, c;
+    UnpolarizedSpectrum weight_scatter(0.0f), weight_null(0.0f);
+
+    if (m_medium_sampling_mode == MediumEventSamplingMode::Analogue) {
+        std::tie(prob_scatter, prob_null) =
+            medium_probabilities_analog(unpolarized_spectrum(radiance), mei);
+    } else if (m_medium_sampling_mode == MediumEventSamplingMode::Maximum) {
+        std::tie(prob_scatter, prob_null) =
+            medium_probabilities_max(unpolarized_spectrum(radiance), mei,
+                                     unpolarized_spectrum(throughput));
+    } else {
+        std::tie(prob_scatter, prob_null) =
+            medium_probabilities_mean(unpolarized_spectrum(radiance), mei,
+                                      unpolarized_spectrum(throughput));
+    }
+    //    Log(mitsuba::LogLevel::Info, "sampling mode: %s", (uint32_t)m_medium_sampling_mode);
+
+    c                             = prob_scatter + prob_null;
+    dr::masked(c, dr::eq(c, 0.f)) = 1.0f;
+    prob_scatter /= c;
+    prob_null /= c;
+
+    dr::masked(weight_null, prob_null > 0.f)       = dr::rcp(prob_null);
+    dr::masked(weight_scatter, prob_scatter > 0.f) = dr::rcp(prob_scatter);
+
+    dr::masked(weight_null,
+               dr::neq(weight_null, weight_null) ||
+                   !(dr::abs(weight_null) < dr::Infinity<Float>) )    = 0.f;
+    dr::masked(weight_scatter,
+               dr::neq(weight_scatter, weight_scatter) ||
+                   !(dr::abs(weight_scatter) < dr::Infinity<Float>) ) = 0.f;
+
+    return std::tuple{ std::pair{ prob_scatter, prob_null },
+                       std::pair{ weight_scatter, weight_null } };
 }
 
 static std::mutex set_dependency_lock_medium;

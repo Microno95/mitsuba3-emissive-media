@@ -13,42 +13,6 @@ def index_spectrum(spec, idx):
     return m
 
 
-def medium_probabilities_analog(radiance: mi.UnpolarizedSpectrum,
-                                sigma_s: mi.UnpolarizedSpectrum,
-                                sigma_n: mi.UnpolarizedSpectrum,
-                                sigma_t: mi.UnpolarizedSpectrum,
-                                channel: mi.UInt32):
-    prob_e = index_spectrum(radiance, channel)
-    prob_s = index_spectrum(sigma_t, channel)
-    prob_n = index_spectrum(sigma_n, channel)
-
-    return prob_e, prob_s, prob_n
-
-
-def medium_probabilities_max(radiance: mi.UnpolarizedSpectrum,
-                             sigma_s: mi.UnpolarizedSpectrum,
-                             sigma_n: mi.UnpolarizedSpectrum,
-                             sigma_t: mi.UnpolarizedSpectrum,
-                             throughput: mi.UnpolarizedSpectrum):
-    prob_e = dr.max(dr.abs(radiance * dr.maximum(1.0, throughput)))
-    prob_s = dr.max(dr.abs(sigma_t))
-    prob_n = dr.max(dr.abs(sigma_n))
-
-    return prob_e, prob_s, prob_n
-
-
-def medium_probabilities_mean(radiance: mi.UnpolarizedSpectrum,
-                              sigma_s: mi.UnpolarizedSpectrum,
-                              sigma_n: mi.UnpolarizedSpectrum,
-                              sigma_t: mi.UnpolarizedSpectrum,
-                              throughput: mi.UnpolarizedSpectrum):
-    prob_e = dr.mean(dr.abs(radiance * (0.5 + 0.5 * throughput)))
-    prob_s = dr.mean(dr.abs(sigma_t))
-    prob_n = dr.mean(dr.abs(sigma_n))
-
-    return prob_e, prob_s, prob_n
-
-
 class PRBVolpathIntegrator(RBIntegrator):
     r"""
     .. _integrator-prbvolpath:
@@ -107,12 +71,12 @@ class PRBVolpathIntegrator(RBIntegrator):
             'type': 'prbvolpath',
             'max_depth': 8
     """
+
     def __init__(self, props=mi.Properties()):
         super().__init__(props)
         self.max_depth = props.get('max_depth', -1)
         self.rr_depth = props.get('rr_depth', 5)
         self.hide_emitters = props.get('hide_emitters', False)
-        self.event_sampling_mode = props.get('event_sampling_mode', "max")
 
         self.use_nee = False
         self.nee_handle_homogeneous = False
@@ -134,46 +98,6 @@ class PRBVolpathIntegrator(RBIntegrator):
         # By default enable always NEE in case there are surfaces
         self.use_nee = True
 
-    def medium_probabilities(self,
-                             radiance: mi.UnpolarizedSpectrum,
-                             sigma_s: mi.UnpolarizedSpectrum,
-                             sigma_n: mi.UnpolarizedSpectrum,
-                             sigma_t: mi.UnpolarizedSpectrum,
-                             throughput: mi.UnpolarizedSpectrum,
-                             channel: mi.UInt32):
-        emission_prob, scatter_prob, null_prob = dr.zeros(mi.Float), dr.zeros(mi.Float), dr.zeros(mi.Float)
-        emission_weight, scatter_weight, null_weight = dr.zeros(mi.Float), dr.zeros(mi.Float), dr.zeros(mi.Float)
-
-        if self.event_sampling_mode == "analogue":
-            emission_prob, scatter_prob, null_prob = medium_probabilities_analog(radiance, sigma_s, sigma_n, sigma_t, channel)
-        elif self.event_sampling_mode == "max":
-            emission_prob, scatter_prob, null_prob = medium_probabilities_max(radiance, sigma_s, sigma_n, sigma_t, throughput)
-        elif self.event_sampling_mode == "mean":
-            emission_prob, scatter_prob, null_prob = medium_probabilities_mean(radiance, sigma_s, sigma_n, sigma_t, throughput)
-
-        emission_prob[dr.max(radiance) > 0] = 1
-        c = emission_prob + scatter_prob + null_prob
-
-        scatter_prob[dr.eq(c, 0.0)] = 1
-        c[dr.eq(c, 0.0)] = 1
-
-        emission_prob = emission_prob / dr.detach(c)
-        null_prob = null_prob / dr.detach(c)
-        scatter_prob = scatter_prob / dr.detach(c)
-
-        emission_weight[emission_prob > 0.0] = dr.rcp(emission_prob)
-        null_weight[null_prob > 0.0] = dr.rcp(null_prob)
-        scatter_weight[scatter_prob > 0.0] = dr.rcp(scatter_prob)
-
-        emission_weight[~dr.eq(emission_weight, emission_weight) | ~(emission_weight < dr.inf)] = 0.0
-        null_weight[~dr.eq(null_weight, null_weight) | ~(null_weight < dr.inf)] = 0.0
-        scatter_weight[~dr.eq(scatter_weight, scatter_weight) | ~(scatter_weight < dr.inf)] = 0.0
-
-        return (
-            (emission_prob, scatter_prob, null_prob),
-            (emission_weight, scatter_weight, null_weight),
-        )
-
     def sample(self,
                mode: dr.ADMode,
                scene: mi.Scene,
@@ -181,8 +105,9 @@ class PRBVolpathIntegrator(RBIntegrator):
                ray: mi.Ray3f,
                δL: Optional[mi.Spectrum],
                state_in: Optional[mi.Spectrum],
+               initial_medium: mi.MediumPtr,
                active: mi.Bool,
-               **kwargs # Absorbs unused arguments
+               **kwargs  # Absorbs unused arguments
     ) -> Tuple[mi.Spectrum, mi.Bool, List[mi.Float], mi.Spectrum]:
         self.prepare_scene(scene)
 
@@ -205,13 +130,12 @@ class PRBVolpathIntegrator(RBIntegrator):
         last_scatter_event = dr.zeros(mi.Interaction3f)
         last_scatter_direction_pdf = mi.Float(1.0)
 
-        # TODO: support sensors inside media
-        medium = dr.zeros(mi.MediumPtr)
+        medium = dr.select(dr.neq(initial_medium, None), initial_medium, dr.zeros(mi.MediumPtr))
 
         channel = 0
         depth = mi.UInt32(0)
-        valid_ray = mi.Bool(False)
-        specular_chain = mi.Bool(True)
+        valid_ray = mi.Bool(dr.neq(scene.environment(), dr.zeros(mi.EmitterPtr)))
+        specular_chain = mi.Bool(active)
 
         if mi.is_rgb:
             # Sample a color channel to sample free-flight distances
@@ -228,7 +152,7 @@ class PRBVolpathIntegrator(RBIntegrator):
 
             #--------------------- Perform russian roulette --------------------
 
-            q = dr.minimum(dr.max(throughput) * dr.sqr(η), 0.99)
+            q = dr.minimum(dr.max(throughput) * dr.sqr(η), 0.95)
             perform_rr = (depth > self.rr_depth)
             active &= (sampler.next_1d(active) < q) | ~perform_rr
             throughput[perform_rr] = throughput * dr.rcp(q)
@@ -261,29 +185,20 @@ class PRBVolpathIntegrator(RBIntegrator):
                 active_medium &= mei.is_valid()
 
                 # Handle null and real scatter events
-                if self.handle_null_scattering:
-                    radiance = medium.get_radiance(mei, active_medium)
-                    probabilities, weights = self.medium_probabilities(
-                        radiance,
-                        mi.unpolarized_spectrum(mei.sigma_s),
-                        mi.unpolarized_spectrum(mei.sigma_n),
-                        mi.unpolarized_spectrum(mei.sigma_t),
-                        mi.unpolarized_spectrum(throughput),
-                        channel
-                    )
-                    emission_prob, scatter_prob, null_prob = probabilities
-                    emission_weight, scatter_weight, null_weight = weights
-                    null_scatter = (sampler.next_1d(active_medium) < (emission_prob + null_prob))
-                    act_null_scatter = null_scatter & active_medium
-                    act_medium_scatter = ~null_scatter & active_medium
-                    contrib = throughput * radiance * dr.detach(emission_weight * weight)
-                    L[act_null_scatter] += dr.detach(contrib if is_primal else -contrib)
-                    weight[act_null_scatter] *= mei.sigma_n * dr.detach(null_weight)
-                else:
-                    scatter_weight = mi.Float(1.0)
-                    act_medium_scatter = active_medium
-                    contrib = dr.zeros(mi.UnpolarizedSpectrum)
+                radiance = medium.get_radiance(mei, active_medium)
+                contrib_medium = (throughput * radiance * dr.detach(weight)) & active_medium
 
+                if self.handle_null_scattering:
+                    (prob_scatter, _), (weight_scatter, weight_null) = medium.get_interaction_probabilities(
+                        radiance, mei, throughput * weight
+                    )
+
+                    act_null_scatter = (sampler.next_1d(active_medium) >= index_spectrum(prob_scatter, channel)) & active_medium
+                    act_medium_scatter = ~act_null_scatter & active_medium
+                    weight[act_null_scatter] *= mei.sigma_n * dr.detach(index_spectrum(weight_null, channel))
+                else:
+                    weight_scatter = mi.UnpolarizedSpectrum(1.0)
+                    act_medium_scatter = active_medium
 
                 depth[act_medium_scatter] += 1
                 last_scatter_event[act_medium_scatter] = dr.detach(mei)
@@ -295,15 +210,16 @@ class PRBVolpathIntegrator(RBIntegrator):
                     ray.o[act_null_scatter] = dr.detach(mei.p)
                     si.t[act_null_scatter] = si.t - dr.detach(mei.t)
 
-                weight[act_medium_scatter] *= mei.sigma_s * dr.detach(scatter_weight)
+                L[active_medium] += dr.detach(contrib_medium if is_primal else -contrib_medium)
+                weight[act_medium_scatter] *= mei.sigma_s * dr.detach(index_spectrum(weight_scatter, channel))
                 throughput *= dr.detach(weight)
 
                 mei = dr.detach(mei)
                 if not is_primal and dr.grad_enabled(weight):
                     Lo = dr.detach(dr.select(active_medium | escaped_medium, L / dr.maximum(1e-8, weight), 0.0))
                     dr.backward(δL * weight * Lo)
-                if not is_primal and dr.grad_enabled(contrib):
-                    dr.backward(δL * contrib)
+                if not is_primal and dr.grad_enabled(contrib_medium):
+                    dr.backward(δL * contrib_medium)
 
                 phase_ctx = mi.PhaseFunctionContext(sampler)
                 phase = mei.medium.phase_function()
@@ -320,7 +236,9 @@ class PRBVolpathIntegrator(RBIntegrator):
                 ray_from_camera = active_surface & dr.eq(depth, 0)
                 count_direct = ray_from_camera | specular_chain
                 emitter = si.emitter(scene)
-                active_e = active_surface & dr.neq(emitter, None) & ~(dr.eq(depth, 0) & self.hide_emitters) & ~mi.has_flag(emitter.flags(), mi.EmitterFlags.Medium)
+                active_e = active_surface & dr.neq(emitter, None) & ~(
+                            dr.eq(depth, 0) & self.hide_emitters) & ~mi.has_flag(emitter.flags(),
+                                                                                 mi.EmitterFlags.Medium)
 
                 # Get the PDF of sampling this emitter using next event estimation
                 ds = mi.DirectionSample3f(scene, si, last_scatter_event)
@@ -342,7 +260,8 @@ class PRBVolpathIntegrator(RBIntegrator):
                 # ---------------------- Emitter sampling ----------------------
 
                 if self.use_nee:
-                    active_e_surface = active_surface & mi.has_flag(bsdf.flags(), mi.BSDFFlags.Smooth) & (depth + 1 < self.max_depth)
+                    active_e_surface = active_surface & mi.has_flag(bsdf.flags(), mi.BSDFFlags.Smooth) & (
+                                depth + 1 < self.max_depth)
                     sample_emitters = mei.medium.use_emitter_sampling()
                     specular_chain &= ~act_medium_scatter
                     specular_chain |= act_medium_scatter & ~sample_emitters
@@ -365,8 +284,8 @@ class PRBVolpathIntegrator(RBIntegrator):
 
                     if not is_primal:
                         self.sample_emitter(mei, si, active_e_medium, active_e_surface,
-                            scene, nee_sampler, medium, channel, active_e, adj_emitted=contrib,
-                            δL=δL, mode=mode)
+                                            scene, nee_sampler, medium, channel, active_e, adj_emitted=contrib,
+                                            δL=δL, mode=mode)
 
                         if dr.grad_enabled(nee_weight) or dr.grad_enabled(emitted):
                             dr.backward(δL * contrib)
@@ -449,7 +368,7 @@ class PRBVolpathIntegrator(RBIntegrator):
                                                          sampler.next_2d(active),
                                                          False, active)
         ds = dr.detach(ds)
-        invalid = dr.eq(ds.pdf, 0.0)
+        invalid = dr.eq(ds.pdf, 0.0) | mi.Bool(mi.has_flag(ds.emitter.flags(), mi.EmitterFlags.Medium))
         emitter_val[invalid] = 0.0
         active &= ~invalid
 
@@ -499,7 +418,6 @@ class PRBVolpathIntegrator(RBIntegrator):
             ray.o[active_medium] = dr.detach(mei.p)
             si.t[active_medium] = dr.detach(si.t - mei.t)
             tr_multiplier[active_medium] *= mei.sigma_n / mei.combined_extinction
-
 
             # Handle interactions with surfaces
             active_surface |= escaped_medium

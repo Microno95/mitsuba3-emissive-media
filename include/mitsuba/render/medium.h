@@ -8,6 +8,13 @@
 
 NAMESPACE_BEGIN(mitsuba)
 
+enum class MediumEventSamplingMode : uint32_t {
+    Analogue = 0,
+    Maximum,
+    Mean
+};
+MI_DECLARE_ENUM_OPERATORS(MediumEventSamplingMode)
+
 template <typename Float, typename Spectrum>
 class MI_EXPORT_LIB Medium : public Object {
 public:
@@ -28,6 +35,42 @@ public:
                        UnpolarizedSpectrum>
     get_scattering_coefficients(const MediumInteraction3f &mi,
                                 Mask active = true) const = 0;
+
+    /// Returns the radiance, the probability of a scatter event, and
+    /// the weights associated with real and null scattering events
+    std::tuple<std::pair<UnpolarizedSpectrum, UnpolarizedSpectrum>,
+               std::pair<UnpolarizedSpectrum, UnpolarizedSpectrum>>
+    get_interaction_probabilities(const Spectrum &radiance,
+                                  const MediumInteraction3f &mi,
+                                  const Spectrum &throughput) const;
+
+    MI_INLINE std::tuple<UnpolarizedSpectrum, UnpolarizedSpectrum>
+    medium_probabilities_analog(const UnpolarizedSpectrum &radiance,
+                                const MediumInteraction3f &mi) const {
+        auto prob_s = mi.sigma_t;
+        auto prob_n = mi.sigma_n + dr::maximum(radiance, dr::mean(dr::abs(radiance)));
+        return std::tuple{ prob_s, prob_n };
+    }
+
+    MI_INLINE std::tuple<UnpolarizedSpectrum, UnpolarizedSpectrum>
+    medium_probabilities_max(const UnpolarizedSpectrum &radiance,
+                             const MediumInteraction3f &mi,
+                             const UnpolarizedSpectrum &throughput) const {
+        auto prob_s = dr::max(dr::abs(mi.sigma_t * throughput));
+        auto prob_n = dr::max(dr::abs(mi.sigma_n * throughput)) +
+                      dr::max(dr::abs(radiance * dr::maximum(1.f, throughput)));
+        return std::tuple{ prob_s, prob_n };
+    }
+
+    MI_INLINE std::tuple<UnpolarizedSpectrum, UnpolarizedSpectrum>
+    medium_probabilities_mean(const UnpolarizedSpectrum &radiance,
+                              const MediumInteraction3f &mi,
+                              const UnpolarizedSpectrum &throughput) const {
+        auto prob_s = dr::mean(dr::abs(mi.sigma_t * throughput));
+        auto prob_n = dr::mean(dr::abs(mi.sigma_n * throughput)) +
+                      dr::mean(dr::abs(radiance * (0.5f + 0.5f * throughput)));
+        return std::tuple{ prob_s, prob_n };
+    }
 
     /// Returns the medium's radiance used for emissive media
     UnpolarizedSpectrum
@@ -125,6 +168,7 @@ protected:
     ref<PhaseFunction> m_phase_function;
     ref<Emitter> m_emitter;
     bool m_sample_emitters, m_is_homogeneous, m_has_spectral_extinction;
+    MediumEventSamplingMode m_medium_sampling_mode;
 
     /// Identifier (if available)
     std::string m_id;
@@ -150,6 +194,10 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Medium)
     DRJIT_VCALL_METHOD(sample_interaction)
     DRJIT_VCALL_METHOD(transmittance_eval_pdf)
     DRJIT_VCALL_METHOD(get_scattering_coefficients)
+    DRJIT_VCALL_METHOD(get_interaction_probabilities)
+    DRJIT_VCALL_METHOD(medium_probabilities_analog)
+    DRJIT_VCALL_METHOD(medium_probabilities_max)
+    DRJIT_VCALL_METHOD(medium_probabilities_mean)
 DRJIT_VCALL_TEMPLATE_END(mitsuba::Medium)
 
 //! @}

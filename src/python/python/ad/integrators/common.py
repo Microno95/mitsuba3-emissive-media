@@ -83,6 +83,7 @@ class ADIntegrator(mi.CppADIntegrator):
                 δL=None,
                 δaovs=None,
                 state_in=None,
+                initial_medium=mi.MediumPtr(sensor.medium()),
                 active=mi.Bool(True)
             )
 
@@ -138,6 +139,7 @@ class ADIntegrator(mi.CppADIntegrator):
                     scene=scene,
                     sampler=sampler,
                     ray=ray,
+                    initial_medium=mi.MediumPtr(sensor.medium()),
                     active=mi.Bool(True)
                 )
 
@@ -191,6 +193,7 @@ class ADIntegrator(mi.CppADIntegrator):
                     scene=scene,
                     sampler=sampler,
                     ray=ray,
+                    initial_medium=mi.MediumPtr(sensor.medium()),
                     active=mi.Bool(True)
                 )
 
@@ -409,6 +412,7 @@ class ADIntegrator(mi.CppADIntegrator):
                δL: Optional[mi.Spectrum],
                δaovs: Optional[mi.Spectrum],
                state_in: Any,
+               initial_medium: Optional[mi.MediumPtr|mi.Medium],
                active: mi.Bool) -> Tuple[mi.Spectrum, mi.Bool, List[mi.Float]]:
         """
         This function does the main work of differentiable rendering and
@@ -580,6 +584,7 @@ class RBIntegrator(ADIntegrator):
                 depth=mi.UInt32(0),
                 δL=None,
                 state_in=None,
+                initial_medium=mi.MediumPtr(sensor.medium()),
                 active=mi.Bool(True)
             )
 
@@ -593,6 +598,7 @@ class RBIntegrator(ADIntegrator):
                 δL=None,
                 δaovs=None,
                 state_in=state_out,
+                initial_medium=mi.MediumPtr(sensor.medium()),
                 active=mi.Bool(True)
             )
 
@@ -770,6 +776,7 @@ class RBIntegrator(ADIntegrator):
                 δL=None,
                 δaovs=None,
                 state_in=None,
+                initial_medium=mi.MediumPtr(sensor.medium()),
                 active=mi.Bool(True)
             )
 
@@ -783,6 +790,7 @@ class RBIntegrator(ADIntegrator):
                 δL=δL,
                 δaovs=δaovs,
                 state_in=state_out,
+                initial_medium=mi.MediumPtr(sensor.medium()),
                 active=mi.Bool(True)
             )
 
@@ -1259,6 +1267,7 @@ class PSIntegrator(ADIntegrator):
                state_in: Any,
                active: mi.Bool,
                project: bool = False,
+               initial_medium: Optional[mi.MediumPtr|mi.Medium] = None,
                si_shade: Optional[mi.SurfaceInteraction3f] = None
     ) -> Tuple[mi.Spectrum, mi.Bool, List[mi.Float], Any]:
         """
