@@ -266,6 +266,38 @@ public:
     virtual Float pdf_position(const PositionSample3f &ps, Mask active = true) const;
 
     /**
+     * \brief Sample a point in the volume of this shape
+     *
+     * The sampling strategy is ideally uniform over the volume, though
+     * implementations are allowed to deviate from a perfectly uniform
+     * distribution as long as this is reflected in the returned probability
+     * density.
+     *
+     * \param time
+     *     The scene time associated with the position sample
+     *
+     * \param sample
+     *     A uniformly distributed 3D point on the domain <tt>[0,1]^3</tt>
+     *
+     * \return
+     *     A \ref PositionSample instance describing the generated sample
+     */
+    virtual PositionSample3f sample_position_3d(Float time, const Point3f &sample,
+                                                Mask active = true) const;
+
+    /**
+     * \brief Query the probability density of \ref sample_position() for
+     * a particular point in the volume.
+     *
+     * \param ps
+     *     A position record describing the sample in question
+     *
+     * \return
+     *     The probability density per unit volume
+     */
+    virtual Float pdf_position_3d(const PositionSample3f &ps, Mask active = true) const;
+
+    /**
      * \brief Sample a direction towards this shape with respect to solid
      * angles measured at a reference position within the scene
      *
@@ -675,6 +707,16 @@ public:
      * The default implementation throws an exception.
      */
     virtual Float surface_area() const;
+
+    /**
+     * \brief Return the shape's volume.
+     *
+     * The function assumes that the object is not undergoing
+     * some kind of time-dependent scaling.
+     *
+     * The default implementation throws an exception.
+     */
+    virtual Float volume() const;
 
     /**
      * \brief Returns whether this shape contains the specified attribute.
@@ -1089,6 +1131,8 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Shape)
     DRJIT_VCALL_METHOD(ray_test)
     DRJIT_VCALL_METHOD(sample_position)
     DRJIT_VCALL_METHOD(pdf_position)
+    DRJIT_VCALL_METHOD(sample_position_3d)
+    DRJIT_VCALL_METHOD(pdf_position_3d)
     DRJIT_VCALL_METHOD(sample_direction)
     DRJIT_VCALL_METHOD(pdf_direction)
     DRJIT_VCALL_METHOD(sample_silhouette)
@@ -1097,6 +1141,7 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Shape)
     DRJIT_VCALL_METHOD(differential_motion)
     DRJIT_VCALL_METHOD(sample_precomputed_silhouette)
     DRJIT_VCALL_METHOD(surface_area)
+    DRJIT_VCALL_METHOD(volume)
     DRJIT_VCALL_GETTER(emitter, const typename Class::Emitter *)
     DRJIT_VCALL_GETTER(sensor, const typename Class::Sensor *)
     DRJIT_VCALL_GETTER(bsdf, const typename Class::BSDF *)

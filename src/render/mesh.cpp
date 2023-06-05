@@ -446,15 +446,20 @@ MI_VARIANT void Mesh<Float, Spectrum>::build_pmf() {
         const ScalarIndex *idx_p = faces.data();
 
         std::vector<ScalarFloat> table(m_face_count);
-        for (ScalarIndex i = 0; i < m_face_count; i++) {
-            ScalarPoint3u idx = dr::load<ScalarPoint3u>(idx_p + 3 * i);
+        auto bbox_center = m_bbox.center();
+    ScalarFloat volume = 0.f;
+
+    for (ScalarIndex i = 0; i < m_face_count; i++) {
+        ScalarPoint3u idx = dr::load<ScalarPoint3u>(idx_p + 3 * i);
 
             ScalarPoint3f p0 = dr::load<InputPoint3f>(pos_p + 3 * idx.x()),
                           p1 = dr::load<InputPoint3f>(pos_p + 3 * idx.y()),
                           p2 = dr::load<InputPoint3f>(pos_p + 3 * idx.z());
 
-            table[i] = .5f * dr::norm(dr::cross(p1 - p0, p2 - p0));
-        }
+        table[i] = .5f * dr::norm(dr::cross(p1 - p0, p2 - p0));
+        volume = volume + dr::dot(p0 - bbox_center, dr::cross(p1 - bbox_center, p2 - bbox_center)) / 6.0f;
+    }
+    m_inv_volume = dr::rcp(dr::abs(volume));
 
         m_area_pmf = DiscreteDistribution<Float>(table.data(), m_face_count);
     } else {
@@ -741,6 +746,11 @@ MI_VARIANT Float Mesh<Float, Spectrum>::surface_area() const {
     return m_area_pmf.sum();
 }
 
+MI_VARIANT Float Mesh<Float, Spectrum>::volume() const {
+    ensure_pmf_built();
+    return dr::rcp(m_inv_volume);
+}
+
 // =============================================================
 //! @{ \name Surface sampling routines
 // =============================================================
@@ -801,8 +811,38 @@ Mesh<Float, Spectrum>::sample_position(Float time, const Point2f &sample_, Mask 
     return ps;
 }
 
-MI_VARIANT
 
+MI_VARIANT typename Mesh<Float, Spectrum>::PositionSample3f
+Mesh<Float, Spectrum>::sample_position_3d(Float time, const Point3f &sample, Mask active) const {
+    ensure_pmf_built();
+
+    UInt32 num_intersections = 0;
+    Point3f bbox_center = m_bbox.center(),
+            bbox_extent = m_bbox.extents(),
+            bbox_min = m_bbox.min;
+    auto test_ray = dr::zeros<Ray3f>();
+
+    auto ps = dr::zeros<PositionSample3f>();
+    ps.p = sample * bbox_extent + bbox_min;
+    ps.n = dr::normalize(test_ray.o - bbox_center);
+    ps.time = time;
+    ps.delta = dr::all(dr::eq(bbox_extent, 0.f));
+
+    test_ray.o = ps.p;
+    test_ray.d = ps.n;
+    test_ray.maxt = dr::Infinity<Float>;
+
+    for (ScalarUInt32 idx = 0; idx < m_face_count; idx++) {
+        auto prelim_intersection = ray_intersect_triangle(idx, test_ray, active);
+        dr::masked(num_intersections, (prelim_intersection.t > 0.f) && prelim_intersection.is_valid()) = num_intersections + 1;
+    }
+
+    Mask is_inside = num_intersections % 2;
+    ps.pdf = dr::select(is_inside, m_inv_volume, 0.f);
+    return ps;
+}
+
+MI_VARIANT
 typename Mesh<Float, Spectrum>::SurfaceInteraction3f
 Mesh<Float, Spectrum>::eval_parameterization(const Point2f &uv,
                                              uint32_t ray_flags,
@@ -830,6 +870,23 @@ Mesh<Float, Spectrum>::eval_parameterization(const Point2f &uv,
 MI_VARIANT Float Mesh<Float, Spectrum>::pdf_position(const PositionSample3f &, Mask) const {
     ensure_pmf_built();
     return m_area_pmf.normalization();
+}
+
+MI_VARIANT Float Mesh<Float, Spectrum>::pdf_position_3d(const PositionSample3f &ps, Mask active) const {
+    ensure_pmf_built();
+    UInt32 num_intersections = 0;
+    auto test_ray = dr::zeros<Ray3f>();
+    test_ray.o = ps.p;
+    test_ray.d = ps.n;
+    test_ray.maxt = dr::Infinity<Float>;
+
+    for (ScalarUInt32 idx = 0; idx < m_face_count; idx++) {
+        auto prelim_intersection = ray_intersect_triangle(idx, test_ray, active);
+        dr::masked(num_intersections, (prelim_intersection.t > 0.f) && prelim_intersection.is_valid()) = num_intersections + 1;
+    }
+
+    Mask is_inside = num_intersections % 2;
+    return dr::select(is_inside, m_inv_volume, 0.f);
 }
 
 //! @}
@@ -1768,8 +1825,10 @@ MI_VARIANT std::string Mesh<Float, Spectrum>::to_string() const {
         << "  face_count = " << m_face_count << "," << std::endl
         << "  faces = [" << util::mem_string(face_data_bytes() * m_face_count) << " of face data]," << std::endl;
 
-    if (!m_area_pmf.empty())
+    if (!m_area_pmf.empty()) {
         oss << "  surface_area = " << m_area_pmf.sum() << "," << std::endl;
+        oss << "  volume = " << dr::rcp(m_inv_volume) << "," << std::endl;
+    }
 
     oss << "  face_normals = " << m_face_normals;
 

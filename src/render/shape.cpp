@@ -107,6 +107,16 @@ MI_VARIANT Float Shape<Float, Spectrum>::pdf_position(const PositionSample3f & /
     NotImplementedError("pdf_position");
 }
 
+MI_VARIANT typename Shape<Float, Spectrum>::PositionSample3f
+Shape<Float, Spectrum>::sample_position_3d(Float /*time*/, const Point3f & /*sample*/,
+                                        Mask /*active*/) const {
+    NotImplementedError("sample_position_3d");
+}
+
+MI_VARIANT Float Shape<Float, Spectrum>::pdf_position_3d(const PositionSample3f & /*ps*/, Mask /*active*/) const {
+    NotImplementedError("pdf_position_3d");
+}
+
 #if defined(MI_ENABLE_EMBREE)
 template <typename Float, typename Spectrum>
 void embree_bbox(const struct RTCBoundsFunctionArguments* args) {
@@ -567,6 +577,10 @@ Shape<Float, Spectrum>::eval_attribute_3(const std::string& name,
 
 MI_VARIANT Float Shape<Float, Spectrum>::surface_area() const {
     NotImplementedError("surface_area");
+}
+
+MI_VARIANT Float Shape<Float, Spectrum>::volume() const {
+    NotImplementedError("volume");
 }
 
 MI_VARIANT typename Shape<Float, Spectrum>::ScalarBoundingBox3f

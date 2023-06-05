@@ -14,6 +14,7 @@ def test01_create_mesh(variant_scalar_rgb):
     params.update()
 
     m.surface_area()  # Ensure surface area computed
+    m.volume()  # Ensure volume computed
 
     assert str(m) == """Mesh[
   name = "MyMesh",
@@ -26,6 +27,7 @@ def test01_create_mesh(variant_scalar_rgb):
   face_count = 2,
   faces = [24 B of face data],
   surface_area = 0.96,
+  volume = 0,
   face_normals = 0
 ]"""
 
@@ -115,6 +117,7 @@ def test05_load_simple_mesh(variant_scalar_rgb):
         assert dr.width(faces) == 36
         assert dr.allclose(faces[6:9], [4, 5, 6])
         assert dr.allclose(positions[:5], [130, 165, 65, 82, 165])
+        assert dr.allclose(shape.volume(), 4559445.0)
 
 
 @pytest.mark.parametrize('mesh_format', ['obj', 'ply', 'serialized'])
@@ -1221,3 +1224,34 @@ def test33_rebuild_area_pmf(variants_vec_rgb):
     surface_area_after = mesh.surface_area()
 
     assert surface_area_after == 4 * surface_area_before
+
+
+@fresolver_append_path
+def test34_volume_sampling(variants_all_rgb):
+    shape = mi.load_dict({
+        "type": "obj",
+        "filename": f"resources/data/tests/obj/cbox_smallbox.obj",
+    })
+
+    sampler = mi.load_dict({
+        "type": "independent",
+        "sample_count": 1
+    })
+
+    mi.set_log_level(mi.LogLevel.Info)
+
+    sampler.seed(0, 0 if "scalar" in variants_all_rgb else 256)
+    time = mi.Float(0.0)
+    active = mi.Mask(True)
+    sample = sampler.next_3d()
+
+    ps = shape.sample_position_3d(time, sample, active)
+
+    assert dr.allclose(dr.select(ps.pdf > 0.0, dr.rcp(shape.volume()), 0.0), ps.pdf)
+    assert dr.allclose(shape.pdf_position_3d(ps, active), ps.pdf)
+
+    bbox_center = mi.PositionSample3f()
+    bbox_center.p = shape.bbox().center()
+    bbox_center.n = mi.Vector3f([1.0, 0.0, 0.0])
+
+    assert dr.allclose(shape.pdf_position_3d(bbox_center, active), dr.rcp(shape.volume()))

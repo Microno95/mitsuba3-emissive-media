@@ -7914,6 +7914,16 @@ Parameter ``ps``:
 Returns:
     The probability density per unit area)doc";
 
+static const char *__doc_mitsuba_Shape_pdf_position_3d =
+R"doc(Query the probability density of sample_position() for a particular
+point in the volume.
+
+Parameter ``ps``:
+    A position record describing the sample in question
+
+Returns:
+    The probability density per unit volume)doc";
+
 static const char *__doc_mitsuba_Shape_precompute_silhouette =
 R"doc(Precompute the visible silhouette of this shape for a given viewpoint.
 
@@ -8104,6 +8114,23 @@ Parameter ``sample``:
 Returns:
     A PositionSample instance describing the generated sample)doc";
 
+static const char *__doc_mitsuba_Shape_sample_position_3d =
+R"doc(Sample a point in the volume of this shape
+
+The sampling strategy is ideally uniform over the volume, though
+implementations are allowed to deviate from a perfectly uniform
+distribution as long as this is reflected in the returned probability
+density.
+
+Parameter ``time``:
+    The scene time associated with the position sample
+
+Parameter ``sample``:
+    A uniformly distributed 3D point on the domain ``[0,1]^3``
+
+Returns:
+    A PositionSample instance describing the generated sample)doc";
+
 static const char *__doc_mitsuba_Shape_sample_precomputed_silhouette =
 R"doc(Samples a boundary segement on the shape's silhouette using
 precomputed information computed in precompute_silhouette.
@@ -8159,6 +8186,14 @@ static const char *__doc_mitsuba_Shape_silhouette_sampling_weight = R"doc(Return
 
 static const char *__doc_mitsuba_Shape_surface_area =
 R"doc(Return the shape's surface area.
+
+The function assumes that the object is not undergoing some kind of
+time-dependent scaling.
+
+The default implementation throws an exception.)doc";
+
+static const char *__doc_mitsuba_Shape_volume =
+R"doc(Return the shape's volume.
 
 The function assumes that the object is not undergoing some kind of
 time-dependent scaling.
@@ -12528,6 +12563,12 @@ angles)doc";
 
 static const char *__doc_mitsuba_warp_square_to_uniform_sphere_pdf = R"doc(Density of square_to_uniform_sphere() with respect to solid angles)doc";
 
+static const char *__doc_mitsuba_warp_cube_to_uniform_sphere =
+R"doc(Uniformly sample a vector in the unit sphere with respect to solid
+angles and radius)doc";
+
+static const char *__doc_mitsuba_warp_cube_to_uniform_sphere_pdf = R"doc(Density of cube_to_uniform_sphere() with respect to solid angles and radius)doc";
+
 static const char *__doc_mitsuba_warp_square_to_uniform_spherical_lune =
 R"doc(Uniformly sample a direction in the two spherical lunes defined by the
 valid boundary directions of two touching faces defined by their
@@ -12566,6 +12607,8 @@ static const char *__doc_mitsuba_warp_uniform_disk_to_square_concentric = R"doc(
 static const char *__doc_mitsuba_warp_uniform_hemisphere_to_square = R"doc(Inverse of the mapping square_to_uniform_hemisphere)doc";
 
 static const char *__doc_mitsuba_warp_uniform_sphere_to_square = R"doc(Inverse of the mapping square_to_uniform_sphere)doc";
+
+static const char *__doc_mitsuba_warp_uniform_sphere_to_cube = R"doc(Inverse of the mapping cube_to_uniform_sphere)doc";
 
 static const char *__doc_mitsuba_warp_uniform_spherical_lune_to_square = R"doc(Inverse of the mapping square_to_uniform_spherical_lune)doc";
 

@@ -168,6 +168,7 @@ public:
         m_to_object = m_to_world.value().inverse();
 
         m_inv_surface_area = dr::rcp(surface_area());
+        m_inv_volume = dr::rcp(volume());
 
         dr::make_opaque(m_radius, m_center, m_inv_surface_area);
         mark_dirty();
@@ -203,6 +204,10 @@ public:
         return 4.f * dr::Pi<ScalarFloat> * dr::sqr(m_radius.value());
     }
 
+    Float volume() const override {
+        return 4.f * dr::Pi<ScalarFloat> * dr::sqr(m_radius.value()) * m_radius.value() / 3.f;
+    }
+
     // =============================================================
     //! @{ \name Sampling routines
     // =============================================================
@@ -231,6 +236,32 @@ public:
     Float pdf_position(const PositionSample3f & /*ps*/, Mask active) const override {
         MI_MASK_ARGUMENT(active);
         return m_inv_surface_area;
+    }
+
+    PositionSample3f sample_position_3d(Float time, const Point3f &sample,
+                                     Mask active) const override {
+        MI_MASK_ARGUMENT(active);
+
+        Point3f local = warp::cube_to_uniform_sphere(sample);
+
+        PositionSample3f ps = dr::zeros<PositionSample3f>();
+        ps.p = dr::fmadd(local, m_radius.value(), m_center.value());
+        ps.n = local;
+
+        if (m_flip_normals)
+            ps.n = -ps.n;
+
+        ps.time = time;
+        ps.delta = m_radius.value() == 0.f;
+        ps.pdf = m_inv_volume;
+        ps.uv = Point2f(sample.x(), sample.y());
+
+        return ps;
+    }
+
+    Float pdf_position_3d(const PositionSample3f & /*ps*/, Mask active) const override {
+        MI_MASK_ARGUMENT(active);
+        return m_inv_volume;
     }
 
     DirectionSample3f sample_direction(const Interaction3f &it, const Point2f &sample,
@@ -765,7 +796,7 @@ private:
     /// Radius in world-space
     field<Float> m_radius;
 
-    Float m_inv_surface_area;
+    Float m_inv_surface_area, m_inv_volume;
 
     bool m_flip_normals;
 };

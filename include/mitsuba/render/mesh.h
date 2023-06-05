@@ -202,11 +202,18 @@ public:
 
     Float surface_area() const override;
 
+     Float volume() const override;
+
     PositionSample3f sample_position(Float time,
                                      const Point2f &sample,
                                      Mask active = true) const override;
 
     Float pdf_position(const PositionSample3f &ps, Mask active = true) const override;
+
+    PositionSample3f sample_position_3d(Float time, const Point3f &sample,
+                                             Mask active = true) const override;
+
+    Float pdf_position_3d(const PositionSample3f &ps, Mask active = true) const override;
 
     Point3f barycentric_coordinates(const SurfaceInteraction3f &si,
                                     Mask active = true) const;
@@ -569,6 +576,10 @@ protected:
        prepare_area_pmf() is first called. */
     DiscreteDistribution<Float> m_area_pmf;
     std::mutex m_mutex;
+
+    /* Inverse volume of mesh, assumes mesh is watertight -- computed on
+     * demand when \ref prepare_area_pmf() is first called */
+    Float m_inv_volume;
 
     /// Optional: used in eval_parameterization()
     ref<Scene<Float, Spectrum>> m_parameterization;

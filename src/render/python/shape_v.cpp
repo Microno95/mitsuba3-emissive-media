@@ -138,6 +138,16 @@ template <typename Ptr, typename Cls> void bind_shape_generic(Cls &cls) {
                 return shape->pdf_position(ps, active);
             },
             "ps"_a, "active"_a = true, D(Shape, pdf_position))
+       .def("sample_position_3d",
+            [](Ptr shape, Float time, const Point3f &sample, Mask active) {
+                return shape->sample_position_3d(time, sample, active);
+            },
+            "time"_a, "sample"_a, "active"_a = true, D(Shape, sample_position_3d))
+       .def("pdf_position_3d",
+            [](Ptr shape, const PositionSample3f &ps, Mask active) {
+                return shape->pdf_position_3d(ps, active);
+            },
+            "ps"_a, "active"_a = true, D(Shape, pdf_position_3d))
        .def("sample_direction",
             [](Ptr shape, const Interaction3f &it, const Point2f &sample,
                Mask active) {
@@ -203,7 +213,12 @@ template <typename Ptr, typename Cls> void bind_shape_generic(Cls &cls) {
             [](Ptr shape) {
                 return shape->surface_area();
             },
-            D(Shape, surface_area));
+            D(Shape, surface_area))
+       .def("volume",
+            [](Ptr shape) {
+                return shape->volume();
+            },
+            D(Shape, volume));
 
     if constexpr (dr::is_array_v<Ptr>)
         bind_drjit_ptr_array(cls);

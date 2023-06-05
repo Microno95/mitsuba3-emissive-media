@@ -153,6 +153,7 @@ public:
         m_to_object = m_to_world.value().inverse();
 
         m_inv_surface_area = dr::rcp(surface_area());
+        m_inv_volume = dr::rcp(volume());
 
         dr::make_opaque(m_radius, m_length, m_inv_surface_area);
         mark_dirty();
@@ -256,6 +257,10 @@ public:
         return dr::TwoPi<ScalarFloat> * m_radius.value() * m_length.value();
     }
 
+    Float volume() const override {
+        return dr::Pi<ScalarFloat> * dr::sqr(m_radius.value()) * m_length.value();
+    }
+
     PositionSample3f sample_position(Float time, const Point2f &sample,
                                      Mask active) const override {
         MI_MASK_ARGUMENT(active);
@@ -283,6 +288,35 @@ public:
     Float pdf_position(const PositionSample3f & /*ps*/, Mask active) const override {
         MI_MASK_ARGUMENT(active);
         return m_inv_surface_area;
+    }
+
+    PositionSample3f sample_position_3d(Float time, const Point3f &sample,
+                                     Mask active) const override {
+        MI_MASK_ARGUMENT(active);
+
+        const Transform4f& to_world = m_to_world.value();
+
+        Point2f p_disk = warp::square_to_uniform_disk(Point2f(sample.x(), sample.y()));
+        Point3f p = Point3f(p_disk.x(), p_disk.y(), sample.z());
+        Normal3f n(p.x(), p.y(), 0.f);
+
+        if (m_flip_normals)
+            n *= -1;
+
+        PositionSample3f ps = dr::zeros<PositionSample3f>();
+        ps.p     = to_world.transform_affine(p);
+        ps.n     = dr::normalize(to_world.transform_affine(n));
+        ps.pdf   = m_inv_volume;
+        ps.time  = time;
+        ps.delta = false;
+        ps.uv = Point2f(sample.y(), sample.x());
+
+        return ps;
+    }
+
+    Float pdf_position_3d(const PositionSample3f & /*ps*/, Mask active) const override {
+        MI_MASK_ARGUMENT(active);
+        return m_inv_volume;
     }
 
     SurfaceInteraction3f eval_parameterization(const Point2f &uv,
@@ -794,7 +828,7 @@ public:
     MI_DECLARE_CLASS()
 private:
     field<Float> m_radius, m_length;
-    Float m_inv_surface_area;
+    Float m_inv_surface_area, m_inv_volume;
     bool m_flip_normals;
     static constexpr float silhouette_offset = 1e-3f;
 };

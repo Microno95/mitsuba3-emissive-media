@@ -118,13 +118,18 @@ public:
     }
 
     std::pair<PositionSample3f, Float>
-    sample_position(Float /*time*/, const Point2f &/*sample*/,
+    sample_position(Float time, const Point2f &sample,
                     Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSamplePosition, active);
         Assert(m_shape, "Cannot sample from a volume emitter without an associated Shape.");
 
         return { dr::zeros<PositionSample3f>(), dr::zeros<Float>() };
     }
+
+    Float pdf_position(const PositionSample3f &ps,
+                       Mask active = true) const override {
+        return m_shape->pdf_position_3d(ps, active);
+    };
 
     std::pair<Wavelength, Spectrum>
     sample_wavelengths(const SurfaceInteraction3f &/*si*/, Float /*sample*/,
