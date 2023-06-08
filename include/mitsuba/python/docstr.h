@@ -6612,6 +6612,8 @@ static const char *__doc_mitsuba_Sampler_next_1d = R"doc(Retrieve the next compo
 
 static const char *__doc_mitsuba_Sampler_next_2d = R"doc(Retrieve the next two component values from the current sample)doc";
 
+static const char *__doc_mitsuba_Sampler_next_3d = R"doc(Retrieve the next three component values from the current sample)doc";
+
 static const char *__doc_mitsuba_Sampler_sample_count = R"doc(Return the number of samples per pixel)doc";
 
 static const char *__doc_mitsuba_Sampler_schedule_state = R"doc(dr::schedule() variables that represent the internal sampler state)doc";
