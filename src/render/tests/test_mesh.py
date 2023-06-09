@@ -252,7 +252,7 @@ def test09_eval_parameterization(variants_all_rgb):
         it = dr.zeros(mi.Interaction3f, N)
         it.p = [0, 0, -3]
         it.t = 0
-        uv = emitters.sample_direction(it, [0.5, 0.5])[0].uv
+        uv = emitters.sample_direction(it, [0.5, 0.5, 0.0])[0].uv
         assert dr.allclose(uv, dr.select(mask, mi.Point2f(0.5), mi.Point2f(0.0)))
 
 

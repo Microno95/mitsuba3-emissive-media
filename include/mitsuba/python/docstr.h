@@ -2586,6 +2586,10 @@ static const char *__doc_mitsuba_Endpoint_needs_sample_2 =
 R"doc(Does the method sample_ray() require a uniformly distributed 2D sample
 for the ``sample2`` parameter?)doc";
 
+static const char *__doc_mitsuba_Endpoint_needs_sample_2_3d =
+R"doc(Does the method sample_ray() require a uniformly distributed 3D sample
+for the ``sample2`` parameter?)doc";
+
 static const char *__doc_mitsuba_Endpoint_needs_sample_3 =
 R"doc(Does the method sample_ray() require a uniformly distributed 2D sample
 for the ``sample3`` parameter?)doc";

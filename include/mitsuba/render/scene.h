@@ -334,7 +334,7 @@ public:
      *    </ul>
      */
     std::tuple<Ray3f, Spectrum, const EmitterPtr>
-    sample_emitter_ray(Float time, Float sample1, const Point2f &sample2,
+    sample_emitter_ray(Float time, Float sample1, const Point3f &sample2,
                        const Point2f &sample3, Mask active = true) const;
 
     /**
@@ -378,7 +378,7 @@ public:
      */
     std::pair<DirectionSample3f, Spectrum>
     sample_emitter_direction(const Interaction3f &ref,
-                             const Point2f &sample,
+                             const Point3f &sample,
                              bool test_visibility = true,
                              Mask active = true) const;
 

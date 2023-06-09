@@ -158,7 +158,7 @@ public:
 
     std::pair<RayDifferential3f, Spectrum>
     sample_ray_differential(Float time, Float wavelength_sample,
-                            const Point2f &position_sample,
+                            const Point3f &position_sample,
                             const Point2f &aperture_sample,
                             Mask active) const override {
 
@@ -187,7 +187,7 @@ public:
     }
 
     std::pair<DirectionSample3f, Spectrum>
-    sample_direction(const Interaction3f &it, const Point2f &sample, Mask active) const override {
+    sample_direction(const Interaction3f &it, const Point3f &sample, Mask active) const override {
         DirectionSample3f result_1 = dr::zeros<DirectionSample3f>();
         Spectrum result_2 = dr::zeros<Spectrum>();
 

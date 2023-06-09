@@ -1,4 +1,4 @@
-from __future__ import annotations # Delayed parsing of type annotations
+from __future__ import annotations  # Delayed parsing of type annotations
 
 import drjit as dr
 import mitsuba as mi
@@ -365,7 +365,7 @@ class PRBVolpathIntegrator(RBIntegrator):
         ref_interaction[active_surface] = si
 
         ds, emitter_val = scene.sample_emitter_direction(ref_interaction,
-                                                         sampler.next_2d(active),
+                                                         sampler.next_3d(active),
                                                          False, active)
         ds = dr.detach(ds)
         invalid = dr.eq(ds.pdf, 0.0) | mi.Bool(mi.has_flag(ds.emitter.flags(), mi.EmitterFlags.Medium))

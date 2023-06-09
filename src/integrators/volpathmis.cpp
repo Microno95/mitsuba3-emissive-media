@@ -388,7 +388,9 @@ public:
                    Mask active) const {
         WeightMatrix p_over_f_nee = p_over_f, p_over_f_uni = p_over_f;
 
-        auto [ds, emitter_sample_weight] = scene->sample_emitter_direction(ref_interaction, sampler->next_2d(active), false, active);
+        /// We conservatively assume that there are volume emitters in the scene and sample 3d points instead of 2d
+        /// This leads to some inefficiencies due to the fact that an extra random number per is generated and unused.
+        auto [ds, emitter_sample_weight] = scene->sample_emitter_direction(ref_interaction, sampler->next_3d(active), false, active);
         Spectrum emitter_val = emitter_sample_weight * ds.pdf;
         dr::masked(emitter_val, dr::eq(ds.pdf, 0.f)) = 0.f;
         active &= dr::neq(ds.pdf, 0.f);

@@ -191,7 +191,7 @@ public:
 
     std::pair<Ray3f, Spectrum>
     sample_ray(Float time, Float wavelength_sample,
-                    const Point2f & /*film_sample*/,
+                    const Point3f & /*film_sample*/,
                     const Point2f &aperture_sample, Mask active) const override {
         MI_MASK_ARGUMENT(active);
 
@@ -235,7 +235,7 @@ public:
     }
 
     std::pair<RayDifferential3f, Spectrum> sample_ray_differential(
-        Float time, Float wavelength_sample, const Point2f &film_sample,
+        Float time, Float wavelength_sample, const Point3f &film_sample,
         const Point2f &aperture_sample, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
 

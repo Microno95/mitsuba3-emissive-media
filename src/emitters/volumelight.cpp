@@ -60,7 +60,7 @@ emitter shape and specify an :monosp:`area` instance as its child:
 template <typename Float, typename Spectrum>
 class VolumeLight final : public Emitter<Float, Spectrum> {
 public:
-    MI_IMPORT_BASE(Emitter, m_flags, m_shape, m_medium)
+    MI_IMPORT_BASE(Emitter, m_flags, m_shape, m_medium, m_needs_sample_2_3d)
     MI_IMPORT_TYPES(Scene, Shape, Texture, Volume)
 
     VolumeLight(const Properties &props) : Base(props) {
@@ -70,6 +70,7 @@ public:
                   "shape.");
 
         m_radiance = props.volume<Volume>("radiance", 0.f);
+        m_needs_sample_2_3d = true;
 
         m_flags = +EmitterFlags::Medium;
 
@@ -85,8 +86,10 @@ public:
         return m_radiance->eval(si, active);
     }
 
-    std::pair<Ray3f, Spectrum> sample_ray(Float /*time*/, Float /*wavelength_sample*/,
-                                          const Point2f &/*sample2*/, const Point2f &/*sample3*/,
+    std::pair<Ray3f, Spectrum> sample_ray(Float /*time*/,
+                                          Float /*wavelength_sample*/,
+                                          const Point3f &/*spatial_sample*/,
+                                          const Point2f &/*direction_sample*/,
                                           Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
 
@@ -95,7 +98,7 @@ public:
     }
 
     std::pair<DirectionSample3f, Spectrum>
-    sample_direction(const Interaction3f &/*it*/, const Point2f &/*sample*/, Mask active) const override {
+    sample_direction(const Interaction3f &/*it*/, const Point3f &/*sample*/, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleDirection, active);
         Assert(m_shape, "Can't sample from a volume emitter without an associated Shape.");
 
@@ -118,7 +121,7 @@ public:
     }
 
     std::pair<PositionSample3f, Float>
-    sample_position(Float time, const Point2f &sample,
+    sample_position(Float time, const Point3f &sample,
                     Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSamplePosition, active);
         Assert(m_shape, "Cannot sample from a volume emitter without an associated Shape.");
