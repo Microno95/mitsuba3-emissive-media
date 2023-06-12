@@ -93,7 +93,8 @@ class PRBVolpathIntegrator(RBIntegrator):
                     # Enable NEE if a medium specifically asks for it
                     self.use_nee = self.use_nee or medium.use_emitter_sampling()
                     self.nee_handle_homogeneous = self.nee_handle_homogeneous or medium.is_homogeneous()
-                    self.handle_null_scattering = self.handle_null_scattering or (not medium.is_homogeneous()) or medium.is_emitter()
+                    self.handle_null_scattering = self.handle_null_scattering or (
+                        not medium.is_homogeneous()) or medium.is_emitter()
         self.is_prepared = True
         # By default enable always NEE in case there are surfaces
         self.use_nee = True
@@ -186,14 +187,32 @@ class PRBVolpathIntegrator(RBIntegrator):
 
                 # Handle null and real scatter events
                 radiance = medium.get_radiance(mei, active_medium)
-                contrib_medium = (throughput * radiance * dr.detach(weight)) & active_medium
+
+                # ---------------- Intersection with emitters ----------------
+                # count_direct_medium = (active_medium & dr.eq(depth, 0)) | specular_chain
+                # emitter_medium = medium.emitter()
+                # active_e_medium = active_medium & dr.neq(emitter_medium, None) & \
+                #                   ~(dr.eq(depth, 0) & self.hide_emitters)
+                # ds = mi.DirectionSample3f(mei, last_scatter_event)
+                # if self.use_nee:
+                #     emitter_pdf = scene.pdf_emitter_direction(last_scatter_event, ds, active_e_medium)
+                #     emitter_weight = dr.select(
+                #         active_e_medium & ~count_direct_medium,
+                #         mis_weight(last_scatter_direction_pdf, emitter_pdf),
+                #         1.0
+                #     )
+                # else:
+                emitter_weight = mi.Float(1.0)
+
+                contrib_medium = throughput * dr.detach(weight) * emitter_weight * radiance
 
                 if self.handle_null_scattering:
                     (prob_scatter, _), (weight_scatter, weight_null) = medium.get_interaction_probabilities(
                         radiance, mei, throughput * weight
                     )
 
-                    act_null_scatter = (sampler.next_1d(active_medium) >= index_spectrum(prob_scatter, channel)) & active_medium
+                    act_null_scatter = (sampler.next_1d(active_medium) >= index_spectrum(prob_scatter,
+                                                                                         channel)) & active_medium
                     act_medium_scatter = ~act_null_scatter & active_medium
                     weight[act_null_scatter] *= mei.sigma_n * dr.detach(index_spectrum(weight_null, channel))
                 else:
@@ -236,9 +255,9 @@ class PRBVolpathIntegrator(RBIntegrator):
                 ray_from_camera = active_surface & dr.eq(depth, 0)
                 count_direct = ray_from_camera | specular_chain
                 emitter = si.emitter(scene)
-                active_e = active_surface & dr.neq(emitter, None) & ~(
-                            dr.eq(depth, 0) & self.hide_emitters) & ~mi.has_flag(emitter.flags(),
-                                                                                 mi.EmitterFlags.Medium)
+                active_e = active_surface & dr.neq(emitter, None) & \
+                           ~(dr.eq(depth, 0) & self.hide_emitters) & \
+                           ~mi.has_flag(emitter.flags(), mi.EmitterFlags.Medium)
 
                 # Get the PDF of sampling this emitter using next event estimation
                 ds = mi.DirectionSample3f(scene, si, last_scatter_event)
@@ -261,7 +280,7 @@ class PRBVolpathIntegrator(RBIntegrator):
 
                 if self.use_nee:
                     active_e_surface = active_surface & mi.has_flag(bsdf.flags(), mi.BSDFFlags.Smooth) & (
-                                depth + 1 < self.max_depth)
+                            depth + 1 < self.max_depth)
                     sample_emitters = mei.medium.use_emitter_sampling()
                     specular_chain &= ~act_medium_scatter
                     specular_chain |= act_medium_scatter & ~sample_emitters
@@ -368,7 +387,7 @@ class PRBVolpathIntegrator(RBIntegrator):
                                                          sampler.next_3d(active),
                                                          False, active)
         ds = dr.detach(ds)
-        invalid = dr.eq(ds.pdf, 0.0) | mi.Bool(mi.has_flag(ds.emitter.flags(), mi.EmitterFlags.Medium))
+        invalid = dr.eq(ds.pdf, 0.0)
         emitter_val[invalid] = 0.0
         active &= ~invalid
 

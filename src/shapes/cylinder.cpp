@@ -155,7 +155,7 @@ public:
         m_inv_surface_area = dr::rcp(surface_area());
         m_inv_volume = dr::rcp(volume());
 
-        dr::make_opaque(m_radius, m_length, m_inv_surface_area);
+        dr::make_opaque(m_radius, m_length, m_inv_surface_area, m_inv_volume);
         mark_dirty();
     }
 
@@ -314,9 +314,12 @@ public:
         return ps;
     }
 
-    Float pdf_position_3d(const PositionSample3f & /*ps*/, Mask active) const override {
+    Float pdf_position_3d(const PositionSample3f &ps, Mask active) const override {
         MI_MASK_ARGUMENT(active);
-        return m_inv_volume;
+        const Transform4f& to_object = m_to_object.value();
+        auto p_local = to_object.transform_affine(ps.p);
+        auto r = dr::safe_sqrt(dr::sqr(p_local.x()) + dr::sqr(p_local.y()));
+        return dr::select(active && (r <= 1.0f) && (p_local.z() >= 0.0f) && (p_local.z() <= 1.0f), m_inv_volume, 0.0f);
     }
 
     SurfaceInteraction3f eval_parameterization(const Point2f &uv,

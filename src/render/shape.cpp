@@ -4,6 +4,8 @@
 #include <mitsuba/render/bsdf.h>
 #include <mitsuba/render/sensor.h>
 #include <mitsuba/render/medium.h>
+#include <mitsuba/render/volume.h>
+#include <mitsuba/core/spectrum.h>
 #include <mitsuba/core/plugin.h>
 
 #if defined(MI_ENABLE_EMBREE)
@@ -71,10 +73,12 @@ MI_VARIANT Shape<Float, Spectrum>::Shape(const Properties &props) : m_id(props.i
 
     if (m_emitter && has_flag(m_emitter->flags(), EmitterFlags::Medium)) {
         if (!m_interior_medium) {
-            Properties props2("homogeneous");
-            props2.set_array3f("sigma_t", { 1.f, 1.f, 1.f });
-            m_interior_medium =
-                PluginManager::instance()->create_object<Medium>(props2);
+            Properties props2("homogeneous"), props_sigma_t("constvolume"), props_albedo("constvolume");
+            props_sigma_t.set_color("rgb", { 1.f, 1.f, 1.f });
+            props_albedo.set_color("rgb", { 0.f, 0.f, 0.f });
+            props2.set_object("sigma_t", PluginManager::instance()->create_object<Volume>(props_sigma_t));
+            props2.set_object("albedo", PluginManager::instance()->create_object<Volume>(props_albedo));
+            m_interior_medium = PluginManager::instance()->create_object<Medium>(props2);
         }
         m_interior_medium->set_emitter(m_emitter);
     }
@@ -658,8 +662,11 @@ MI_VARIANT void Shape<Float, Spectrum>::initialize() {
         m_emitter->set_shape(this);
         if (has_flag(m_emitter->flags(), EmitterFlags::Medium)) {
             if (!m_interior_medium) {
-                Properties props2("homogeneous");
-                props2.set_array3f("sigma_t", { 1.f, 1.f, 1.f });
+                Properties props2("homogeneous"), props_sigma_t("constvolume"), props_albedo("constvolume");
+                props_sigma_t.set_color("rgb", { 1.f, 1.f, 1.f });
+                props_albedo.set_color("rgb", { 0.f, 0.f, 0.f });
+                props2.set_object("sigma_t", PluginManager::instance()->create_object<Volume>(props_sigma_t));
+                props2.set_object("albedo", PluginManager::instance()->create_object<Volume>(props_albedo));
                 m_interior_medium = PluginManager::instance()->create_object<Medium>(props2);
             }
             if (m_interior_medium->emitter() != m_emitter.get())

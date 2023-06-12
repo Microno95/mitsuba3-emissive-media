@@ -170,7 +170,7 @@ public:
         m_inv_surface_area = dr::rcp(surface_area());
         m_inv_volume = dr::rcp(volume());
 
-        dr::make_opaque(m_radius, m_center, m_inv_surface_area);
+        dr::make_opaque(m_radius, m_center, m_inv_surface_area, m_inv_volume);
         mark_dirty();
     }
 
@@ -259,9 +259,9 @@ public:
         return ps;
     }
 
-    Float pdf_position_3d(const PositionSample3f & /*ps*/, Mask active) const override {
+    Float pdf_position_3d(const PositionSample3f &ps, Mask active) const override {
         MI_MASK_ARGUMENT(active);
-        return m_inv_volume;
+        return dr::select(active && (dr::norm(m_center.value() - ps.p) <= m_radius.value()), m_inv_volume, 0.0f);
     }
 
     DirectionSample3f sample_direction(const Interaction3f &it, const Point2f &sample,

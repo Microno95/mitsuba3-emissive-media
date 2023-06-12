@@ -289,6 +289,11 @@ class ADIntegrator(mi.CppADIntegrator):
         scale = dr.rcp(mi.ScalarVector2f(film.crop_size()))
         offset = -mi.ScalarVector2f(film.crop_offset()) * scale
         pos_adjusted = dr.fma(pos_f, scale, offset)
+        pos_adjusted = mi.Vector3f(
+            pos_adjusted.x,
+            pos_adjusted.y,
+            0.0
+        )
 
         aperture_sample = mi.Vector2f(0.0)
         if sensor.needs_aperture_sample():

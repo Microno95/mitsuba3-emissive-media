@@ -1255,3 +1255,8 @@ def test34_volume_sampling(variants_all_rgb):
     bbox_center.n = mi.Vector3f([1.0, 0.0, 0.0])
 
     assert dr.allclose(shape.pdf_position_3d(bbox_center, active), dr.rcp(shape.volume()))
+    bbox_center.p = shape.bbox().center() + 5*dr.norm(shape.bbox().extents())*(shape.bbox().max - shape.bbox().center())
+    assert dr.allclose(shape.pdf_position_3d(bbox_center, active), 0.0)
+
+
+

@@ -255,7 +255,25 @@ public:
                 specular_chain &= !act_medium_scatter;
                 specular_chain |= act_medium_scatter && !sample_emitters;
 
-                dr::masked(result, active_medium) += mis_weight(p_over_f) * radiance;
+                auto weight = mis_weight(p_over_f);
+
+                // ---------------- Intersection with emitters ----------------
+                Mask ray_from_camera_medium = active_medium && dr::eq(depth, 0u);
+                Mask count_direct_medium = ray_from_camera_medium || specular_chain;
+                EmitterPtr emitter_medium = mei.emitter();
+                Mask active_medium_e = active_medium
+                                       && dr::neq(emitter_medium, nullptr)
+                                       && !(dr::eq(depth, 0u) && m_hide_emitters);
+//                if (dr::any_or<true>(active_medium_e)) {
+//                    if (dr::any_or<true>(active_medium_e && !count_direct_medium)) {
+//                        // Get the PDF of sampling this emitter using next event estimation
+//                        DirectionSample3f ds(mei, last_scatter_event);
+//                        Float emitter_pdf = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e);
+//                        update_weights(p_over_f_nee, emitter_pdf, 1.f, channel, active_medium_e);
+//                    }
+//                    dr::masked(weight, active_medium_e && !count_direct_medium) = mis_weight(p_over_f, p_over_f_nee);
+//                }
+                dr::masked(result, active_medium_e) += weight * radiance;
 
                 if (dr::any_or<true>(act_null_scatter)) {
                     update_weights(p_over_f, prob_null, mei.sigma_n, channel, act_null_scatter);
@@ -316,8 +334,10 @@ public:
                 Mask ray_from_camera = active_surface && dr::eq(depth, 0u);
                 Mask count_direct = ray_from_camera || specular_chain;
                 EmitterPtr emitter = si.emitter(scene);
-                Mask active_e = active_surface && dr::neq(emitter, nullptr) && !(dr::eq(depth, 0u) && m_hide_emitters)
-                                && !has_flag(emitter->flags(), EmitterFlags::Medium);
+                Mask active_e = active_surface
+                                && dr::neq(emitter, nullptr)
+                                && !(dr::eq(depth, 0u) && m_hide_emitters)
+                                && !has_flag(emitter->flags(), EmitterFlags::Medium); // Ignore any medium emitters as this simply looks at surface emitters
                 if (dr::any_or<true>(active_e)) {
                     if (dr::any_or<true>(active_e && !count_direct)) {
                         // Get the PDF of sampling this emitter using next event estimation

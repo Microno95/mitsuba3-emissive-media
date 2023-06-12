@@ -419,6 +419,15 @@ protected:
      */
     void build_parameterization();
 
+    /**
+     * \brief Initialize the \c m_volume_parameterization field for running
+     * ray/object intersections.
+     *
+     * Internally, the function creates a nested scene to leverage optimized
+     * ray tracing functionality in \ref pdf_position_3d()
+     */
+    void build_volume_parameterization();
+
     // Ensures that the sampling table are ready.
     DRJIT_INLINE void ensure_pmf_built() const {
         if (unlikely(m_area_pmf.empty()))
@@ -582,7 +591,7 @@ protected:
     Float m_inv_volume;
 
     /// Optional: used in eval_parameterization()
-    ref<Scene<Float, Spectrum>> m_parameterization;
+    ref<Scene<Float, Spectrum>> m_parameterization, m_volume_parameterization;
 
     /// Pointer to the scene that owns this mesh
     Scene<Float, Spectrum>* m_scene = nullptr;

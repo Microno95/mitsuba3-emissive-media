@@ -86,38 +86,86 @@ public:
         return m_radiance->eval(si, active);
     }
 
-    std::pair<Ray3f, Spectrum> sample_ray(Float /*time*/,
-                                          Float /*wavelength_sample*/,
-                                          const Point3f &/*spatial_sample*/,
-                                          const Point2f &/*direction_sample*/,
+    std::pair<Ray3f, Spectrum> sample_ray(Float time,
+                                          Float wavelength_sample,
+                                          const Point3f &spatial_sample,
+                                          const Point2f &direction_sample,
                                           Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
 
-        return { dr::zeros<Ray3f>(),
-                 dr::zeros<Spectrum>() };
+        // 1. Sample spatial component
+        auto [ps, pos_weight] = sample_position(time, spatial_sample, active);
+
+        // 2. Sample directional component
+        Vector3f local = warp::square_to_uniform_sphere(direction_sample);
+
+        // 3. Sample spectral component
+        SurfaceInteraction3f si(ps, dr::zeros<Wavelength>());
+        auto [wavelength, wav_weight] =
+            sample_wavelengths(si, wavelength_sample, active);
+        si.time = time;
+        si.wavelengths = wavelength;
+
+        Spectrum weight = pos_weight * wav_weight * dr::rcp(warp::square_to_uniform_sphere_pdf(local));
+
+        return { si.spawn_ray(si.to_world(local)),
+                 depolarizer<Spectrum>(weight) };
     }
 
     std::pair<DirectionSample3f, Spectrum>
-    sample_direction(const Interaction3f &/*it*/, const Point3f &/*sample*/, Mask active) const override {
+    sample_direction(const Interaction3f &it, const Point3f &sample, Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleDirection, active);
         Assert(m_shape, "Can't sample from a volume emitter without an associated Shape.");
 
-        return { dr::zeros<DirectionSample3f>(), dr::zeros<Spectrum>() };
+        auto ps = m_shape->sample_position_3d(it.time, sample, active);
+        auto ds = DirectionSample3f(ps);
+
+        ds.time = it.time;
+        ds.p = ps.p;
+        ds.d = ps.p - it.p;
+        auto dist_squared = dr::squared_norm(ds.d);
+        ds.dist = dr::sqrt(dist_squared);
+        ds.d = ds.d / ds.dist;
+
+        ds.n = -ds.d;
+        ds.pdf = ps.pdf * dist_squared;
+        ds.delta = ps.delta;
+        ds.uv = dr::zeros<Point2f>();
+
+        auto si = dr::zeros<SurfaceInteraction3f>();
+        si.time = ds.time;
+        si.p = ds.p;
+        si.wavelengths = it.wavelengths;
+        si.shape = m_shape;
+        si.n = ds.n;
+        active &= ds.pdf > 0.f;
+
+        UnpolarizedSpectrum spec = m_radiance->eval(si, active) / ds.pdf;
+        ds.emitter = this;
+
+        return { ds, depolarizer<Spectrum>(spec) & active };
     }
 
-    Float pdf_direction(const Interaction3f &/*it*/, const DirectionSample3f &/*ds*/,
+    Float pdf_direction(const Interaction3f &/*it*/, const DirectionSample3f &ds,
                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
+        MI_MASK_ARGUMENT(active);
 
-        return dr::zeros<Float>();
+        Float pdf = pdf_position(ds, active);
+        pdf *= dr::sqr(ds.dist);
+
+        return dr::select(active, pdf, 0.f);
     }
 
-    Spectrum eval_direction(const Interaction3f &/*it*/,
-                            const DirectionSample3f &/*ds*/,
+    Spectrum eval_direction(const Interaction3f &it,
+                            const DirectionSample3f &ds,
                             Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
 
-        return dr::zeros<Spectrum>();
+        SurfaceInteraction3f si(ds, it.wavelengths);
+        UnpolarizedSpectrum spec = m_radiance->eval(si, active);
+
+        return dr::select(active, depolarizer<Spectrum>(spec), 0.f);
     }
 
     std::pair<PositionSample3f, Float>
@@ -126,7 +174,10 @@ public:
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSamplePosition, active);
         Assert(m_shape, "Cannot sample from a volume emitter without an associated Shape.");
 
-        return { dr::zeros<PositionSample3f>(), dr::zeros<Float>() };
+        auto ps = m_shape->sample_position_3d(time, sample, active);
+        auto weight = dr::select(active && (ps.pdf > 0.f), dr::rcp(ps.pdf), 0.f);
+
+        return { ps, weight };
     }
 
     Float pdf_position(const PositionSample3f &ps,
@@ -135,9 +186,22 @@ public:
     };
 
     std::pair<Wavelength, Spectrum>
-    sample_wavelengths(const SurfaceInteraction3f &/*si*/, Float /*sample*/,
-                       Mask /*active*/) const override {
-        NotImplementedError("sample wavelengths not implemented for volume emitters!");
+    sample_wavelengths(const SurfaceInteraction3f &_si, Float sample,
+                       Mask active) const override {
+
+        if (dr::none_or<false>(active))
+            return { dr::zeros<Wavelength>(), dr::zeros<UnpolarizedSpectrum>() };
+
+        if constexpr (is_spectral_v<Spectrum>) {
+            SurfaceInteraction3f si(_si);
+            si.wavelengths = MI_CIE_MIN + (MI_CIE_MAX - MI_CIE_MIN) * sample;
+            return { si.wavelengths,
+                     eval(si, active) * (MI_CIE_MAX - MI_CIE_MIN) };
+        } else {
+            DRJIT_MARK_USED(sample);
+            auto value = eval(_si, active);
+            return { dr::empty<Wavelength>(), value };
+        }
     }
 
     ScalarBoundingBox3f bbox() const override { return m_shape->bbox(); }

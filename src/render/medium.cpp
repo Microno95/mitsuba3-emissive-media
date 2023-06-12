@@ -162,7 +162,6 @@ Medium<Float, Spectrum>::get_interaction_probabilities(const Spectrum &radiance,
             medium_probabilities_mean(unpolarized_spectrum(radiance), mei,
                                       unpolarized_spectrum(throughput));
     }
-    //    Log(mitsuba::LogLevel::Info, "sampling mode: %s", (uint32_t)m_medium_sampling_mode);
 
     c                             = prob_scatter + prob_null;
     dr::masked(c, dr::eq(c, 0.f)) = 1.0f;

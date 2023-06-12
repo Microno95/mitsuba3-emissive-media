@@ -139,6 +139,8 @@ MI_VARIANT void Mesh<Float, Spectrum>::parameters_changed(const std::vector<std:
 
         if (m_parameterization)
             m_parameterization = nullptr;
+        if (m_volume_parameterization)
+            m_volume_parameterization = nullptr;
 
         if (parameters_grad_enabled()) {
             // A topology change could have been made in a first update, and
@@ -622,6 +624,8 @@ Mesh<Float, Spectrum>::build_indirect_silhouette_distribution() {
     dr::masked(weight, valid || boundary) = dr::detach(dr::norm(p1 - p0));
 
     m_sil_dedge_pmf = DiscreteDistribution<Float>(weight);
+
+    dr::make_opaque(m_inv_volume);
 }
 
 MI_VARIANT
@@ -736,6 +740,31 @@ MI_VARIANT void Mesh<Float, Spectrum>::build_parameterization() {
     m_parameterization = new Scene<Float, Spectrum>(props);
 }
 
+
+MI_VARIANT void Mesh<Float, Spectrum>::build_volume_parameterization() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_volume_parameterization)
+        return; // already built!
+
+    Properties props;
+    ref<Mesh> mesh =
+        new Mesh(m_name + "_vol_param", m_vertex_count, m_face_count,
+                 props, false, false);
+    mesh->m_faces = m_faces;
+    mesh->m_vertex_positions = m_vertex_positions;
+    mesh->m_vertex_normals = m_vertex_normals;
+    mesh->m_bbox = m_bbox;
+    mesh->m_to_world = m_to_world.value();
+    mesh->initialize();
+
+    props.set_object("mesh", mesh.get());
+
+    if (m_scene)
+        props.set_object("parent_scene", m_scene);
+
+    m_volume_parameterization = new Scene<Float, Spectrum>(props);
+}
+
 MI_VARIANT typename Mesh<Float, Spectrum>::ScalarSize
 Mesh<Float, Spectrum>::primitive_count() const {
     return face_count();
@@ -816,29 +845,17 @@ MI_VARIANT typename Mesh<Float, Spectrum>::PositionSample3f
 Mesh<Float, Spectrum>::sample_position_3d(Float time, const Point3f &sample, Mask active) const {
     ensure_pmf_built();
 
-    UInt32 num_intersections = 0;
-    Point3f bbox_center = m_bbox.center(),
-            bbox_extent = m_bbox.extents(),
-            bbox_min = m_bbox.min;
+    Point3f bbox_min = m_bbox.min,
+            bbox_extent = m_bbox.extents();
     auto test_ray = dr::zeros<Ray3f>();
 
-    auto ps = dr::zeros<PositionSample3f>();
+    PositionSample3f ps;
     ps.p = sample * bbox_extent + bbox_min;
-    ps.n = dr::normalize(test_ray.o - bbox_center);
+    ps.n = warp::square_to_uniform_sphere(Point2f(sample.x(), sample.y()));
     ps.time = time;
     ps.delta = dr::all(dr::eq(bbox_extent, 0.f));
+    ps.pdf = pdf_position_3d(ps, active);
 
-    test_ray.o = ps.p;
-    test_ray.d = ps.n;
-    test_ray.maxt = dr::Infinity<Float>;
-
-    for (ScalarUInt32 idx = 0; idx < m_face_count; idx++) {
-        auto prelim_intersection = ray_intersect_triangle(idx, test_ray, active);
-        dr::masked(num_intersections, (prelim_intersection.t > 0.f) && prelim_intersection.is_valid()) = num_intersections + 1;
-    }
-
-    Mask is_inside = num_intersections % 2;
-    ps.pdf = dr::select(is_inside, m_inv_volume, 0.f);
     return ps;
 }
 
@@ -874,18 +891,31 @@ MI_VARIANT Float Mesh<Float, Spectrum>::pdf_position(const PositionSample3f &, M
 
 MI_VARIANT Float Mesh<Float, Spectrum>::pdf_position_3d(const PositionSample3f &ps, Mask active) const {
     ensure_pmf_built();
+    if (!m_volume_parameterization)
+        const_cast<Mesh *>(this)->build_volume_parameterization();
+
     UInt32 num_intersections = 0;
     auto test_ray = dr::zeros<Ray3f>();
+    Mask is_inside = active;
+
     test_ray.o = ps.p;
     test_ray.d = ps.n;
-    test_ray.maxt = dr::Infinity<Float>;
+    test_ray.maxt = dr::norm(m_bbox.extents());
+    auto loop_name = "Mesh[" + std::string(m_name) + "] - PDF Position 3d";
 
-    for (ScalarUInt32 idx = 0; idx < m_face_count; idx++) {
-        auto prelim_intersection = ray_intersect_triangle(idx, test_ray, active);
-        dr::masked(num_intersections, (prelim_intersection.t > 0.f) && prelim_intersection.is_valid()) = num_intersections + 1;
+    dr::Loop<Mask> loop(loop_name.c_str(),
+                        active, test_ray, num_intersections, *this);
+    loop.set_max_iterations(m_face_count);
+    while (loop(active)) {
+        auto p_inter = m_volume_parameterization->ray_intersect(
+            test_ray, +RayFlags::Minimal, true, active
+        );
+        active &= p_inter.is_valid() && (p_inter.t > 0.f);
+        dr::masked(num_intersections, active) += 1;
+        dr::masked(test_ray, active) = p_inter.spawn_ray(test_ray.d);
     }
 
-    Mask is_inside = num_intersections % 2;
+    is_inside &= num_intersections % 2;
     return dr::select(is_inside, m_inv_volume, 0.f);
 }
 

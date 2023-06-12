@@ -18,7 +18,7 @@ MI_DECLARE_ENUM_OPERATORS(MediumEventSamplingMode)
 template <typename Float, typename Spectrum>
 class MI_EXPORT_LIB Medium : public Object {
 public:
-    MI_IMPORT_TYPES(PhaseFunction, Sampler, Scene, Texture, Emitter, Volume);
+    MI_IMPORT_TYPES(PhaseFunction, Sampler, Scene, Texture, Emitter, Volume, EmitterPtr);
 
     /// Intersects a ray with the medium's bounding box
     virtual std::tuple<Mask, Float, Float>
@@ -124,7 +124,12 @@ public:
     }
 
     /// Return the emitter of this medium
-    MI_INLINE const Emitter *emitter() const {
+    const EmitterPtr emitter(Mask /*unused*/ = true) const {
+        return m_emitter.get();
+    }
+
+    /// Return the emitter of this medium
+    EmitterPtr emitter(Mask /*unused*/ = true) {
         return m_emitter.get();
     }
 
@@ -186,7 +191,6 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Medium)
     DRJIT_VCALL_GETTER(emitter, const typename Class::Emitter*)
     DRJIT_VCALL_GETTER(use_emitter_sampling, bool)
     DRJIT_VCALL_GETTER(is_homogeneous, bool)
-    DRJIT_VCALL_GETTER(is_emitter, bool)
     DRJIT_VCALL_GETTER(has_spectral_extinction, bool)
     DRJIT_VCALL_METHOD(get_majorant)
     DRJIT_VCALL_METHOD(get_radiance)
@@ -198,6 +202,7 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Medium)
     DRJIT_VCALL_METHOD(medium_probabilities_analog)
     DRJIT_VCALL_METHOD(medium_probabilities_max)
     DRJIT_VCALL_METHOD(medium_probabilities_mean)
+    auto is_emitter() const { return neq(emitter(), nullptr); }
 DRJIT_VCALL_TEMPLATE_END(mitsuba::Medium)
 
 //! @}

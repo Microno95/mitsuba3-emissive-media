@@ -188,12 +188,7 @@ public:
             }
 
             if (dr::any_or<true>(active_medium)) {
-                if (dr::any_or<true>(not_spectral)) {
-                    dr::masked(throughput, not_spectral) *= dr::rcp(mei.combined_extinction);
-                }
-
                 // Compute emission, scatter and null event probabilities
-
                 auto radiance = medium->get_radiance(mei, active_medium);
                 auto [probabilities, weights] =
                     medium->get_interaction_probabilities(radiance, mei, throughput);
@@ -206,7 +201,26 @@ public:
                 act_null_scatter   |=  null_scatter && active_medium;
                 act_medium_scatter |= !null_scatter && active_medium;
 
-                dr::masked(result, active_medium) += throughput * radiance;
+                auto contrib = throughput * radiance;
+                Spectrum weight = 1.0f;
+
+                // ---------------- Intersection with emitters ----------------
+                Mask ray_from_camera_medium = active_medium && dr::eq(depth, 0u);
+                Mask count_direct_medium = ray_from_camera_medium || specular_chain;
+                EmitterPtr emitter_medium = mei.emitter();
+                Mask active_medium_e = active_medium
+                                       && dr::neq(emitter_medium, nullptr)
+                                       && !(dr::eq(depth, 0u) && m_hide_emitters);
+//                if (dr::any_or<true>(active_medium_e)) {
+//                    Float emitter_pdf = 1.0f;
+//                    if (dr::any_or<true>(active_medium_e && !count_direct_medium)) {
+//                        DirectionSample3f ds(mei, last_scatter_event);
+//                        dr::masked(emitter_pdf, active_medium_e && !count_direct_medium) = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e && !count_direct_medium);
+//                    }
+//                    // Get the PDF of sampling this emitter using next event estimation
+//                    dr::masked(weight, active_medium_e && !count_direct_medium) = mis_weight(last_scatter_direction_pdf, emitter_pdf);
+//                }
+                dr::masked(result, active_medium_e) += weight * contrib;
 
                 if (dr::any_or<true>(act_null_scatter))
                 {
@@ -271,7 +285,7 @@ public:
                 EmitterPtr emitter = si.emitter(scene);
                 Mask active_e = active_surface && dr::neq(emitter, nullptr)
                                 && !(dr::eq(depth, 0u) && m_hide_emitters)
-                                && !has_flag(emitter->flags(), EmitterFlags::Medium); // Ignore any emitting media as they are not compatible with MIS yet
+                                && !has_flag(emitter->flags(), EmitterFlags::Medium); // Ignore any medium emitters as this simply looks at surface emitters
                 if (dr::any_or<true>(active_e)) {
                     Float emitter_pdf = 1.0f;
                     if (dr::any_or<true>(active_e && !count_direct)) {

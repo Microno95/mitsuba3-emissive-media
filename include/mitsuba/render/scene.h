@@ -660,5 +660,18 @@ SurfaceInteraction<Float, Spectrum>::emitter(const Scene *scene, Mask active) co
     }
 }
 
+// See interaction.h
+template <typename Float, typename Spectrum>
+typename MediumInteraction<Float, Spectrum>::EmitterPtr
+MediumInteraction<Float, Spectrum>::emitter(Mask active) const {
+    if constexpr (!dr::is_jit_v<Float>) {
+        DRJIT_MARK_USED(active);
+        return is_valid() ? medium->emitter() : nullptr;
+    } else {
+        EmitterPtr emitter = medium->emitter(active & is_valid());
+        return emitter;
+    }
+}
+
 MI_EXTERN_CLASS(Scene)
 NAMESPACE_END(mitsuba)

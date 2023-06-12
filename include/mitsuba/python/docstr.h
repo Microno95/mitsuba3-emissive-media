@@ -4309,6 +4309,8 @@ static const char *__doc_mitsuba_MediumInteraction_sigma_t = R"doc()doc";
 static const char *__doc_mitsuba_MediumInteraction_to_local =
 R"doc(Convert a world-space vector into local shading coordinates (defined
 by ``wi``))doc";
+static const char *__doc_mitsuba_MediumInteraction_emitter =
+    R"doc(Return the emitter associated with the intersection (if any))doc";
 
 static const char *__doc_mitsuba_MediumInteraction_to_world =
 R"doc(Convert a local shading-space (defined by ``wi``) vector into world
