@@ -189,20 +189,20 @@ class PRBVolpathIntegrator(RBIntegrator):
                 radiance = medium.get_radiance(mei, active_medium)
 
                 # ---------------- Intersection with emitters ----------------
-                # count_direct_medium = (active_medium & dr.eq(depth, 0)) | specular_chain
-                # emitter_medium = medium.emitter()
-                # active_e_medium = active_medium & dr.neq(emitter_medium, None) & \
-                #                   ~(dr.eq(depth, 0) & self.hide_emitters)
-                # ds = mi.DirectionSample3f(mei, last_scatter_event)
-                # if self.use_nee:
-                #     emitter_pdf = scene.pdf_emitter_direction(last_scatter_event, ds, active_e_medium)
-                #     emitter_weight = dr.select(
-                #         active_e_medium & ~count_direct_medium,
-                #         mis_weight(last_scatter_direction_pdf, emitter_pdf),
-                #         1.0
-                #     )
-                # else:
-                emitter_weight = mi.Float(1.0)
+                count_direct_medium = (active_medium & dr.eq(depth, 0)) | specular_chain
+                emitter_medium = medium.emitter()
+                active_e_medium = active_medium & dr.neq(emitter_medium, None) & \
+                                  ~(dr.eq(depth, 0) & self.hide_emitters)
+                ds = mi.DirectionSample3f(mei, last_scatter_event)
+                if self.use_nee:
+                    emitter_pdf = scene.pdf_emitter_direction(last_scatter_event, ds, active_e_medium)
+                    emitter_weight = dr.select(
+                        active_e_medium & ~count_direct_medium,
+                        mis_weight(last_scatter_direction_pdf, emitter_pdf),
+                        1.0
+                    )
+                else:
+                    emitter_weight = mi.Float(1.0)
 
                 contrib_medium = throughput * dr.detach(weight) * emitter_weight * radiance
 

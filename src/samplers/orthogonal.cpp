@@ -95,13 +95,13 @@ public:
         auto is_prime = [](uint32_t x) {
             if (x % 2 == 0)
                 return false;
-            for (uint32_t i = 3; i <= ((uint32_t) std::sqrt((double) x) + 1); ++(++i))
+            for (uint32_t i = 3; i <= ((uint32_t) dr::sqrt((double) x) + 1); ++(++i))
                 if (x % i == 0)
                     return false;
             return true;
         };
 
-        m_resolution = std::max((uint32_t) std::sqrt((double) spp), (uint32_t) 2);
+        m_resolution = dr::maximum((uint32_t) dr::sqrt((double) spp), (uint32_t) 2);
         m_resolution = (m_resolution + m_resolution % 2) - 1;
         while ((dr::sqr(m_resolution) < spp) || !is_prime(m_resolution)) {
             m_resolution += m_resolution % 2 + 1;

@@ -202,18 +202,24 @@ public:
 
     Float surface_area() const override;
 
-     Float volume() const override;
+    Float volume() const override;
 
-    PositionSample3f sample_position(Float time,
+    PositionSample3f sample_position_surface(Float time,
                                      const Point2f &sample,
                                      Mask active = true) const override;
 
-    Float pdf_position(const PositionSample3f &ps, Mask active = true) const override;
+    Float pdf_position_surface(const PositionSample3f &ps, Mask active = true) const override;
 
-    PositionSample3f sample_position_3d(Float time, const Point3f &sample,
+    DirectionSample3f sample_direction_volume(const Interaction3f &it, const Point3f &sample,
+                                                      Mask active = true) const override;
+
+    Float pdf_direction_volume(const Interaction3f &it, const DirectionSample3f &ds,
+                                       Mask active = true) const override;
+
+    PositionSample3f sample_position_volume(Float time, const Point3f &sample,
                                              Mask active = true) const override;
 
-    Float pdf_position_3d(const PositionSample3f &ps, Mask active = true) const override;
+    Float pdf_position_volume(const PositionSample3f &ps, Mask active = true) const override;
 
     Point3f barycentric_coordinates(const SurfaceInteraction3f &si,
                                     Mask active = true) const;
@@ -424,7 +430,7 @@ protected:
      * ray/object intersections.
      *
      * Internally, the function creates a nested scene to leverage optimized
-     * ray tracing functionality in \ref pdf_position_3d()
+     * ray tracing functionality in \ref pdf_position_volume()
      */
     void build_volume_parameterization();
 

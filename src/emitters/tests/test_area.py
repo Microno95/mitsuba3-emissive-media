@@ -84,7 +84,7 @@ def test03_sample_ray(variants_vec_spectral, spectrum_key):
     wav, spec = spectrum.sample_spectrum(it, mi.sample_shifted(wavelength_sample))
 
     # Sample a position on the shape
-    ps = shape.sample_position(time, pos_sample[:2])
+    ps = shape.sample_position_surface(time, pos_sample[:2])
 
     assert dr.allclose(res, spec * shape.surface_area() * dr.pi)
     assert dr.allclose(ray.time, time)
@@ -112,7 +112,7 @@ def test04_sample_direction(variants_vec_spectral, spectrum_key):
     ds, res = emitter.sample_direction(it, samples)
 
     # Sample direction on the shape
-    shape_ds = shape.sample_direction(it, samples[:2])
+    shape_ds = shape.sample_direction_surface(it, samples[:2])
 
     assert dr.allclose(ds.pdf, shape_ds.pdf)
     assert dr.allclose(ds.pdf, emitter.pdf_direction(it, ds))

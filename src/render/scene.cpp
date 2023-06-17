@@ -32,7 +32,7 @@ MI_VARIANT Scene<Float, Spectrum>::Scene(const Properties &props) {
             m_children.push_back(v.get());
 
         if (shape) {
-            if (shape->is_emitter() && !has_flag(shape->emitter()->flags(), EmitterFlags::Medium))
+            if (shape->is_emitter())
                 m_emitters.push_back(shape->emitter());
             if (shape->is_sensor())
                 m_sensors.push_back(shape->sensor());

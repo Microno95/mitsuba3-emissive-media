@@ -217,8 +217,8 @@ public:
             ray_weight = wav_weight;
         } else if constexpr (TargetType == RayTargetType::Shape) {
             // Use area-based sampling of shape
-            PositionSample3f ps =
-                m_target_shape->sample_position(time, aperture_sample, active);
+            PositionSample3f ps = m_target_shape->sample_position_surface(
+                time, aperture_sample, active);
             ray.o = ps.p - 2.f * ray.d * m_bsphere.radius;
             ray_weight = wav_weight / (ps.pdf * m_target_shape->surface_area());
         } else { // if constexpr (TargetType == RayTargetType::None) {

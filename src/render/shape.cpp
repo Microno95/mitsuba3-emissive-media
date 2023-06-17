@@ -102,23 +102,23 @@ MI_VARIANT Shape<Float, Spectrum>::~Shape() {
 }
 
 MI_VARIANT typename Shape<Float, Spectrum>::PositionSample3f
-Shape<Float, Spectrum>::sample_position(Float /*time*/, const Point2f & /*sample*/,
+Shape<Float, Spectrum>::sample_position_surface(Float /*time*/, const Point2f & /*sample*/,
                                         Mask /*active*/) const {
-    NotImplementedError("sample_position");
+    NotImplementedError("sample_position_surface");
 }
 
-MI_VARIANT Float Shape<Float, Spectrum>::pdf_position(const PositionSample3f & /*ps*/, Mask /*active*/) const {
-    NotImplementedError("pdf_position");
+MI_VARIANT Float Shape<Float, Spectrum>::pdf_position_surface(const PositionSample3f & /*ps*/, Mask /*active*/) const {
+    NotImplementedError("pdf_position_surface");
 }
 
 MI_VARIANT typename Shape<Float, Spectrum>::PositionSample3f
-Shape<Float, Spectrum>::sample_position_3d(Float /*time*/, const Point3f & /*sample*/,
+Shape<Float, Spectrum>::sample_position_volume(Float /*time*/, const Point3f & /*sample*/,
                                         Mask /*active*/) const {
-    NotImplementedError("sample_position_3d");
+    NotImplementedError("sample_position_volume");
 }
 
-MI_VARIANT Float Shape<Float, Spectrum>::pdf_position_3d(const PositionSample3f & /*ps*/, Mask /*active*/) const {
-    NotImplementedError("pdf_position_3d");
+MI_VARIANT Float Shape<Float, Spectrum>::pdf_position_volume(const PositionSample3f & /*ps*/, Mask /*active*/) const {
+    NotImplementedError("pdf_position_volume");
 }
 
 #if defined(MI_ENABLE_EMBREE)
@@ -379,12 +379,12 @@ MI_VARIANT void Shape<Float, Spectrum>::optix_build_input(OptixBuildInput &build
 #endif
 
 MI_VARIANT typename Shape<Float, Spectrum>::DirectionSample3f
-Shape<Float, Spectrum>::sample_direction(const Interaction3f &it,
+Shape<Float, Spectrum>::sample_direction_surface(const Interaction3f &it,
                                          const Point2f &sample,
                                          Mask active) const {
     MI_MASK_ARGUMENT(active);
 
-    DirectionSample3f ds(sample_position(it.time, sample, active));
+    DirectionSample3f ds(sample_position_surface(it.time, sample, active));
     ds.d = ds.p - it.p;
 
     Float dist_squared = dr::squared_norm(ds.d);
@@ -398,15 +398,61 @@ Shape<Float, Spectrum>::sample_direction(const Interaction3f &it,
     return ds;
 }
 
-MI_VARIANT Float Shape<Float, Spectrum>::pdf_direction(const Interaction3f & /*it*/,
+MI_VARIANT Float Shape<Float, Spectrum>::pdf_direction_surface(const Interaction3f & /*it*/,
                                                         const DirectionSample3f &ds,
                                                         Mask active) const {
     MI_MASK_ARGUMENT(active);
 
-    Float pdf = pdf_position(ds, active),
+    Float pdf = pdf_position_surface(ds, active),
            dp = dr::abs_dot(ds.d, ds.n);
 
     pdf *= dr::select(dr::neq(dp, 0.f), (ds.dist * ds.dist) / dp, 0.f);
+
+    return pdf;
+}
+
+MI_VARIANT typename Shape<Float, Spectrum>::DirectionSample3f
+Shape<Float, Spectrum>::sample_direction_volume(const Interaction3f &it,
+                                         const Point3f &sample,
+                                         Mask active) const {
+    MI_MASK_ARGUMENT(active);
+
+    auto ps = sample_position_volume(it.time, sample, active);
+    auto ds = DirectionSample3f(ps);
+
+    ds.time = it.time;
+    ds.p = ps.p;
+    ds.d = ps.p - it.p;
+    auto dist_squared = dr::squared_norm(ds.d);
+    ds.dist = dr::sqrt(dist_squared);
+    ds.d = ds.d / ds.dist;
+
+    ds.n = -ds.d;
+
+    auto [center, radius] = bbox().bounding_sphere();
+    Float min_r = dr::maximum(ds.dist - 2.0f*radius, 0.0f), max_r = ds.dist + 2.0f*radius;
+
+    /// While not exact, here we assume that a given shape has an extent `r`
+    /// defined by the bounding sphere and we simply compute the integral of
+    /// ``p(x)r^2`` from ``max(0, ds.d - 2r)`` to ``ds.d+2r`` assuming that
+    /// p(x) is constant.
+    ds.pdf = ps.pdf * (dr::sqr(max_r)*max_r - dr::sqr(min_r)*min_r)/3.f;
+    ds.delta = ps.delta;
+    ds.uv = dr::zeros<Point2f>();
+
+    return ds;
+}
+
+MI_VARIANT Float Shape<Float, Spectrum>::pdf_direction_volume(const Interaction3f & /*it*/,
+                                                        const DirectionSample3f &ds,
+                                                        Mask active) const {
+    MI_MASK_ARGUMENT(active);
+
+    Float pdf = pdf_position_volume(ds, active);
+
+    auto [center, radius] = bbox().bounding_sphere();
+    Float min_r = dr::maximum(ds.dist - 2.0f*radius, 0.0f), max_r = ds.dist + 2.0f*radius;
+    pdf *= (dr::sqr(max_r)*max_r - dr::sqr(min_r)*min_r)/3.f;
 
     return pdf;
 }

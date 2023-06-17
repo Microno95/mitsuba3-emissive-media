@@ -80,7 +80,7 @@ def test03_sample_ray(variants_vec_spectral, spectrum_key):
     it = dr.zeros(mi.SurfaceInteraction3f, 3)
 
     # Sample a position in the shape
-    ps = shape.sample_position_3d(time, pos_sample)
+    ps = shape.sample_position_volume(time, pos_sample)
     pdf = mi.warp.square_to_uniform_sphere_pdf(mi.warp.square_to_uniform_sphere(dir_sample))
     it.p = ps.p
     it.n = ps.n
@@ -112,17 +112,17 @@ def test04_sample_direction(variants_vec_spectral, spectrum_key):
     ds, res = emitter.sample_direction(it, samples)
 
     # Sample direction on the shape
-    sphere_ds = dr.zeros(mi.DirectionSample3f)
-    sphere_ds.p = it.p
-    ps = shape.sample_position_3d(it.time, samples)
-    sphere_ds.d = ps.p - it.p
-    dist2 = dr.squared_norm(sphere_ds.d)
-    sphere_ds.d = sphere_ds.d / dr.sqrt(dist2)
-    sphere_ds.pdf = ps.pdf * dist2
+    shape_ds = dr.zeros(mi.DirectionSample3f)
+    shape_ds.p = it.p
+    ps = shape.sample_position_volume(it.time, samples)
+    shape_ds.d = ps.p - it.p
+    dist2 = dr.squared_norm(shape_ds.d)
+    shape_ds.d = shape_ds.d / dr.sqrt(dist2)
+    shape_ds.pdf = shape.pdf_direction_volume(it, ds)
 
-    assert dr.allclose(ds.pdf, sphere_ds.pdf)
+    assert dr.allclose(ds.pdf, shape_ds.pdf)
     assert dr.allclose(ds.pdf, emitter.pdf_direction(it, ds))
-    assert dr.allclose(ds.d, sphere_ds.d, atol=1e-3)
+    assert dr.allclose(ds.d, shape_ds.d, atol=1e-3)
     assert dr.allclose(ds.time, it.time)
 
     # Evaluate the spectrum (divide by the pdf)

@@ -133,7 +133,8 @@ public:
         // One of two very different strategies is used depending on 'm_radiance'
         if (likely(!m_radiance->is_spatially_varying())) {
             // Texture is uniform, try to importance sample the shape wrt. solid angle at 'it'
-            ds = m_shape->sample_direction(it, Point2f(sample.x(), sample.y()), active);
+            ds = m_shape->sample_direction_surface(
+                it, Point2f(sample.x(), sample.y()), active);
             active &= dr::dot(ds.d, ds.n) < 0.f && dr::neq(ds.pdf, 0.f);
 
             si = SurfaceInteraction3f(ds, it.wavelengths);
@@ -184,7 +185,7 @@ public:
 
         Float value;
         if (!m_radiance->is_spatially_varying()) {
-            value = m_shape->pdf_direction(it, ds, active);
+            value = m_shape->pdf_direction_surface(it, ds, active);
         } else {
             // This surface intersection would be nice to avoid..
             SurfaceInteraction3f si = m_shape->eval_parameterization(ds.uv, +RayFlags::dPdUV, active);
@@ -226,7 +227,8 @@ public:
         PositionSample3f ps;
         if (!m_radiance->is_spatially_varying()) {
             // Radiance not spatially varying, use area-based sampling of shape
-            ps = m_shape->sample_position(time, Point2f(sample.x(), sample.y()), active);
+            ps = m_shape->sample_position_surface(
+                time, Point2f(sample.x(), sample.y()), active);
         } else {
             // Importance sample texture
             auto [uv, pdf] = m_radiance->sample_position(Point2f(sample.x(), sample.y()), active);

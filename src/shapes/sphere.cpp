@@ -212,7 +212,7 @@ public:
     //! @{ \name Sampling routines
     // =============================================================
 
-    PositionSample3f sample_position(Float time, const Point2f &sample,
+    PositionSample3f sample_position_surface(Float time, const Point2f &sample,
                                      Mask active) const override {
         MI_MASK_ARGUMENT(active);
 
@@ -233,12 +233,12 @@ public:
         return ps;
     }
 
-    Float pdf_position(const PositionSample3f & /*ps*/, Mask active) const override {
+    Float pdf_position_surface(const PositionSample3f & /*ps*/, Mask active) const override {
         MI_MASK_ARGUMENT(active);
         return m_inv_surface_area;
     }
 
-    PositionSample3f sample_position_3d(Float time, const Point3f &sample,
+    PositionSample3f sample_position_volume(Float time, const Point3f &sample,
                                      Mask active) const override {
         MI_MASK_ARGUMENT(active);
 
@@ -253,18 +253,18 @@ public:
 
         ps.time = time;
         ps.delta = m_radius.value() == 0.f;
-        ps.pdf = m_inv_volume;
+        ps.pdf = dr::select(ps.delta, 1.0f, m_inv_volume);
         ps.uv = Point2f(sample.x(), sample.y());
 
         return ps;
     }
 
-    Float pdf_position_3d(const PositionSample3f &ps, Mask active) const override {
+    Float pdf_position_volume(const PositionSample3f &ps, Mask active) const override {
         MI_MASK_ARGUMENT(active);
         return dr::select(active && (dr::norm(m_center.value() - ps.p) <= m_radius.value()), m_inv_volume, 0.0f);
     }
 
-    DirectionSample3f sample_direction(const Interaction3f &it, const Point2f &sample,
+    DirectionSample3f sample_direction_surface(const Interaction3f &it, const Point2f &sample,
                                        Mask active) const override {
         MI_MASK_ARGUMENT(active);
         DirectionSample3f result = dr::zeros<DirectionSample3f>();
@@ -341,7 +341,7 @@ public:
         return result;
     }
 
-    Float pdf_direction(const Interaction3f &it, const DirectionSample3f &ds,
+    Float pdf_direction_surface(const Interaction3f &it, const DirectionSample3f &ds,
                         Mask active) const override {
         MI_MASK_ARGUMENT(active);
 
@@ -354,6 +354,69 @@ public:
             warp::square_to_uniform_cone_pdf(dr::zeros<Vector3f>(), cos_alpha),
             m_inv_surface_area * dr::sqr(ds.dist) / dr::abs_dot(ds.d, ds.n)
         );
+    }
+
+    DirectionSample3f sample_direction_volume(const Interaction3f &it,
+                                              const Point3f &sample,
+                                              Mask active) const override {
+        MI_MASK_ARGUMENT(active);
+
+        auto result = dr::zeros<DirectionSample3f>();
+
+        auto ps = sample_position_volume(it.time, sample, active);
+        auto ray = Ray3f(it.p, ps.p, it.time, m_radius.value()*4.0f, it.wavelengths);
+
+        Vector3f dc_v = m_center.value() - it.p;
+        Float dc_2 = dr::squared_norm(dc_v);
+
+        Float radius_adj = m_radius.value() * (m_flip_normals ?
+                                               (1.f + math::RayEpsilon<Float>) :
+                                               (1.f - math::RayEpsilon<Float>));
+        Mask outside_mask = active && dc_2 > dr::sqr(radius_adj);
+
+        Float t0 = 0.0f, t1 = 0.0f;
+
+        dr::masked(t0, outside_mask) = ray_intersect_preliminary(ray, outside_mask).t;
+
+        ray.o = ray(t0 + math::RayEpsilon<Float>);
+        auto pi = ray_intersect_preliminary(ray, active);
+        t1 = pi.t;
+
+        result.p = ps.p;
+        result.uv = ps.uv;
+        result.n = ps.n;
+        result.delta = ps.delta;
+        result.time = it.time;
+        result.pdf = ps.pdf;
+        dr::masked(result.pdf, active && !result.delta) *= (dr::sqr(t1)*t1 - dr::sqr(t0)*t0)/3.0f;
+
+        return result;
+    }
+
+    Float pdf_direction_volume(const Interaction3f &it, const DirectionSample3f &ds,
+                                Mask active) const override {
+        MI_MASK_ARGUMENT(active);
+
+        auto pdf = pdf_position_volume(ds, active);
+        auto ray = Ray3f(it.p, ds.p, it.time, m_radius.value()*4.0f, it.wavelengths);
+
+        Vector3f dc_v = m_center.value() - it.p;
+        Float dc_2 = dr::squared_norm(dc_v);
+
+        Float radius_adj = m_radius.value() * (m_flip_normals ?
+                                                               (1.f + math::RayEpsilon<Float>) :
+                                                               (1.f - math::RayEpsilon<Float>));
+        Mask outside_mask = active && dc_2 > dr::sqr(radius_adj);
+
+        Float t0 = 0.0f, t1 = 0.0f;
+        dr::masked(t0, outside_mask) = ray_intersect_preliminary(ray, outside_mask).t;
+
+        ray.o = ray(t0 + math::RayEpsilon<Float>);
+        auto pi = ray_intersect_preliminary(ray, active);
+        t1 = pi.t;
+
+        dr::masked(pdf, active && !ds.delta) *= (dr::sqr(t1)*t1 - dr::sqr(t0)*t0)/3.0f;
+        return dr::select(active && !ds.delta, pdf, 0.0f);
     }
 
     SurfaceInteraction3f eval_parameterization(const Point2f &uv,

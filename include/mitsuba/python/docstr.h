@@ -4770,7 +4770,9 @@ static const char *__doc_mitsuba_Mesh_parameters_changed = R"doc()doc";
 
 static const char *__doc_mitsuba_Mesh_parameters_grad_enabled = R"doc()doc";
 
-static const char *__doc_mitsuba_Mesh_pdf_position = R"doc()doc";
+static const char *__doc_mitsuba_Mesh_pdf_position_surface = R"doc()doc";
+
+static const char *__doc_mitsuba_Mesh_pdf_position_volume = R"doc()doc";
 
 static const char *__doc_mitsuba_Mesh_precompute_silhouette = R"doc()doc";
 
@@ -4811,7 +4813,9 @@ static const char *__doc_mitsuba_Mesh_recompute_bbox = R"doc(Recompute the bound
 
 static const char *__doc_mitsuba_Mesh_recompute_vertex_normals = R"doc(Compute smooth vertex normals and replace the current normal values)doc";
 
-static const char *__doc_mitsuba_Mesh_sample_position = R"doc()doc";
+static const char *__doc_mitsuba_Mesh_sample_position_surface = R"doc()doc";
+
+static const char *__doc_mitsuba_Mesh_sample_position_volume = R"doc()doc";
 
 static const char *__doc_mitsuba_Mesh_sample_precomputed_silhouette = R"doc()doc";
 
@@ -7900,8 +7904,8 @@ static const char *__doc_mitsuba_Shape_parameters_grad_enabled =
 R"doc(Return whether any shape's parameters require gradients (default
 return false))doc";
 
-static const char *__doc_mitsuba_Shape_pdf_direction =
-R"doc(Query the probability density of sample_direction()
+static const char *__doc_mitsuba_Shape_pdf_direction_surface =
+    R"doc(Query the probability density of sample_direction_surface()
 
 Parameter ``it``:
     A reference position somewhere within the scene.
@@ -7912,8 +7916,20 @@ Parameter ``ps``:
 Returns:
     The probability density per unit solid angle)doc";
 
-static const char *__doc_mitsuba_Shape_pdf_position =
-R"doc(Query the probability density of sample_position() for a particular
+static const char *__doc_mitsuba_Shape_pdf_direction_volume =
+    R"doc(Query the probability density of sample_direction_volume()
+
+Parameter ``it``:
+    A reference position somewhere within the scene.
+
+Parameter ``ps``:
+    A position record describing the sample in question
+
+Returns:
+    The probability density per unit solid angle)doc";
+
+static const char *__doc_mitsuba_Shape_pdf_position_surface =
+R"doc(Query the probability density of sample_position_surface() for a particular
 point on the surface.
 
 Parameter ``ps``:
@@ -7922,8 +7938,8 @@ Parameter ``ps``:
 Returns:
     The probability density per unit area)doc";
 
-static const char *__doc_mitsuba_Shape_pdf_position_3d =
-R"doc(Query the probability density of sample_position() for a particular
+static const char *__doc_mitsuba_Shape_pdf_position_volume =
+R"doc(Query the probability density of sample_position_surface() for a particular
 point in the volume.
 
 Parameter ``ps``:
@@ -8078,8 +8094,8 @@ static const char *__doc_mitsuba_Shape_ray_test_packet_3 = R"doc()doc";
 
 static const char *__doc_mitsuba_Shape_ray_test_scalar = R"doc()doc";
 
-static const char *__doc_mitsuba_Shape_sample_direction =
-R"doc(Sample a direction towards this shape with respect to solid angles
+static const char *__doc_mitsuba_Shape_sample_direction_surface =
+    R"doc(Sample a direction towards this shape with respect to solid angles
 measured at a reference position within the scene
 
 An ideal implementation of this interface would achieve a uniform
@@ -8092,7 +8108,7 @@ per unit solid angle associated with the sample.
 
 When the Shape subclass does not supply a custom implementation of
 this function, the Shape class reverts to a fallback approach that
-piggybacks on sample_position(). This will generally lead to a
+piggybacks on sample_position_surface(). This will generally lead to a
 suboptimal sample placement and higher variance in Monte Carlo
 estimators using the samples.
 
@@ -8105,7 +8121,34 @@ Parameter ``sample``:
 Returns:
     A DirectionSample instance describing the generated sample)doc";
 
-static const char *__doc_mitsuba_Shape_sample_position =
+static const char *__doc_mitsuba_Shape_sample_direction_volume =
+    R"doc(Sample a direction towards this shape with respect to solid angles
+measured at a reference position within the scene
+
+An ideal implementation of this interface would achieve a uniform
+solid angle density within the volume region that is visible from the
+reference position ``it.p`` (though such an ideal implementation is
+usually neither feasible nor advisable due to poor efficiency).
+
+The function returns the sampled position and the inverse probability
+per unit solid angle associated with the sample.
+
+When the Shape subclass does not supply a custom implementation of
+this function, the Shape class reverts to a fallback approach that
+piggybacks on sample_position_volume(). This will generally lead to a
+suboptimal sample placement and higher variance in Monte Carlo
+estimators using the samples.
+
+Parameter ``it``:
+    A reference position somewhere within the scene.
+
+Parameter ``sample``:
+    A uniformly distributed 3D point on the domain ``[0,1]^3``
+
+Returns:
+    A DirectionSample instance describing the generated sample)doc";
+
+static const char *__doc_mitsuba_Shape_sample_position_surface =
 R"doc(Sample a point on the surface of this shape
 
 The sampling strategy is ideally uniform over the surface, though
@@ -8122,7 +8165,7 @@ Parameter ``sample``:
 Returns:
     A PositionSample instance describing the generated sample)doc";
 
-static const char *__doc_mitsuba_Shape_sample_position_3d =
+static const char *__doc_mitsuba_Shape_sample_position_volume =
 R"doc(Sample a point in the volume of this shape
 
 The sampling strategy is ideally uniform over the volume, though
@@ -9572,7 +9615,7 @@ default implementation throws an exception.
 Even if the operation is provided, it may only return an
 approximation.)doc";
 
-static const char *__doc_mitsuba_Texture_pdf_position = R"doc(Returns the probability per unit area of sample_position())doc";
+static const char *__doc_mitsuba_Texture_pdf_position = R"doc(Returns the probability per unit area of sample_position_surface())doc";
 
 static const char *__doc_mitsuba_Texture_pdf_spectrum =
 R"doc(Evaluate the density function of the sample_spectrum() method as a

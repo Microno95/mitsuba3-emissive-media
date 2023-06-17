@@ -1245,18 +1245,18 @@ def test34_volume_sampling(variants_all_rgb):
     active = mi.Mask(True)
     sample = sampler.next_3d()
 
-    ps = shape.sample_position_3d(time, sample, active)
+    ps = shape.sample_position_volume(time, sample, active)
 
     assert dr.allclose(dr.select(ps.pdf > 0.0, dr.rcp(shape.volume()), 0.0), ps.pdf)
-    assert dr.allclose(shape.pdf_position_3d(ps, active), ps.pdf)
+    assert dr.allclose(shape.pdf_position_volume(ps, active), ps.pdf)
 
     bbox_center = mi.PositionSample3f()
     bbox_center.p = shape.bbox().center()
     bbox_center.n = mi.Vector3f([1.0, 0.0, 0.0])
 
-    assert dr.allclose(shape.pdf_position_3d(bbox_center, active), dr.rcp(shape.volume()))
+    assert dr.allclose(shape.pdf_position_volume(bbox_center, active), dr.rcp(shape.volume()))
     bbox_center.p = shape.bbox().center() + 5*dr.norm(shape.bbox().extents())*(shape.bbox().max - shape.bbox().center())
-    assert dr.allclose(shape.pdf_position_3d(bbox_center, active), 0.0)
+    assert dr.allclose(shape.pdf_position_volume(bbox_center, active), 0.0)
 
 
 

@@ -250,11 +250,11 @@ public:
      * \return
      *     A \ref PositionSample instance describing the generated sample
      */
-    virtual PositionSample3f sample_position(Float time, const Point2f &sample,
+    virtual PositionSample3f sample_position_surface(Float time, const Point2f &sample,
                                              Mask active = true) const;
 
     /**
-     * \brief Query the probability density of \ref sample_position() for
+     * \brief Query the probability density of \ref sample_position_surface() for
      * a particular point on the surface.
      *
      * \param ps
@@ -263,7 +263,7 @@ public:
      * \return
      *     The probability density per unit area
      */
-    virtual Float pdf_position(const PositionSample3f &ps, Mask active = true) const;
+    virtual Float pdf_position_surface(const PositionSample3f &ps, Mask active = true) const;
 
     /**
      * \brief Sample a point in the volume of this shape
@@ -282,11 +282,11 @@ public:
      * \return
      *     A \ref PositionSample instance describing the generated sample
      */
-    virtual PositionSample3f sample_position_3d(Float time, const Point3f &sample,
+    virtual PositionSample3f sample_position_volume(Float time, const Point3f &sample,
                                                 Mask active = true) const;
 
     /**
-     * \brief Query the probability density of \ref sample_position() for
+     * \brief Query the probability density of \ref sample_position_volume() for
      * a particular point in the volume.
      *
      * \param ps
@@ -295,7 +295,7 @@ public:
      * \return
      *     The probability density per unit volume
      */
-    virtual Float pdf_position_3d(const PositionSample3f &ps, Mask active = true) const;
+    virtual Float pdf_position_volume(const PositionSample3f &ps, Mask active = true) const;
 
     /**
      * \brief Sample a direction towards this shape with respect to solid
@@ -311,7 +311,7 @@ public:
      *
      * When the Shape subclass does not supply a custom implementation of this
      * function, the \ref Shape class reverts to a fallback approach that
-     * piggybacks on \ref sample_position(). This will generally lead to a
+     * piggybacks on \ref sample_position_surface(). This will generally lead to a
      * suboptimal sample placement and higher variance in Monte Carlo
      * estimators using the samples.
      *
@@ -324,11 +324,12 @@ public:
      * \return
      *     A \ref DirectionSample instance describing the generated sample
      */
-    virtual DirectionSample3f sample_direction(const Interaction3f &it, const Point2f &sample,
-                                               Mask active = true) const;
+    virtual DirectionSample3f
+    sample_direction_surface(const Interaction3f &it, const Point2f &sample,
+                             Mask active = true) const;
 
     /**
-     * \brief Query the probability density of \ref sample_direction()
+     * \brief Query the probability density of \ref sample_direction_surface()
      *
      * \param it
      *    A reference position somewhere within the scene.
@@ -339,8 +340,55 @@ public:
      * \return
      *     The probability density per unit solid angle
      */
-    virtual Float pdf_direction(const Interaction3f &it, const DirectionSample3f &ds,
-                                Mask active = true) const;
+    virtual Float pdf_direction_surface(const Interaction3f &it, const DirectionSample3f &ds,
+                                        Mask active = true) const;
+
+    /**
+     * \brief Sample a direction towards a point contained within this shape
+     * with respect to solid angles measured at a reference position
+     * within the scene
+     *
+     * An ideal implementation of this interface would achieve a uniform solid
+     * angle density within the volume that is visible from the
+     * reference position <tt>it.p</tt> (though such an ideal implementation
+     * is usually neither feasible nor advisable due to poor efficiency).
+     *
+     * The function returns the sampled position and the inverse probability
+     * per unit solid angle associated with the sample.
+     *
+     * When the Shape subclass does not supply a custom implementation of this
+     * function, the \ref Shape class reverts to a fallback approach that
+     * piggybacks on \ref sample_position_volume(). This will generally lead to a
+     * suboptimal sample placement and higher variance in Monte Carlo
+     * estimators using the samples.
+     *
+     * \param it
+     *    A reference position somewhere within the scene.
+     *
+     * \param sample
+     *     A uniformly distributed 3D point on the domain <tt>[0,1]^3</tt>
+     *
+     * \return
+     *     A \ref DirectionSample instance describing the generated sample
+     */
+    virtual DirectionSample3f
+    sample_direction_volume(const Interaction3f &it, const Point3f &sample,
+                             Mask active = true) const;
+
+    /**
+     * \brief Query the probability density of \ref sample_direction_volume()
+     *
+     * \param it
+     *    A reference position somewhere within the scene.
+     *
+     * \param ps
+     *     A position record describing the sample in question
+     *
+     * \return
+     *     The probability density per unit solid angle
+     */
+    virtual Float pdf_direction_volume(const Interaction3f &it, const DirectionSample3f &ds,
+                                        Mask active = true) const;
 
     //! @}
     // =============================================================
@@ -1129,12 +1177,14 @@ DRJIT_VCALL_TEMPLATE_BEGIN(mitsuba::Shape)
     DRJIT_VCALL_METHOD(ray_intersect_preliminary)
     DRJIT_VCALL_METHOD(ray_intersect)
     DRJIT_VCALL_METHOD(ray_test)
-    DRJIT_VCALL_METHOD(sample_position)
-    DRJIT_VCALL_METHOD(pdf_position)
-    DRJIT_VCALL_METHOD(sample_position_3d)
-    DRJIT_VCALL_METHOD(pdf_position_3d)
-    DRJIT_VCALL_METHOD(sample_direction)
-    DRJIT_VCALL_METHOD(pdf_direction)
+    DRJIT_VCALL_METHOD(sample_position_surface)
+    DRJIT_VCALL_METHOD(pdf_position_surface)
+    DRJIT_VCALL_METHOD(sample_position_volume)
+    DRJIT_VCALL_METHOD(pdf_position_volume)
+    DRJIT_VCALL_METHOD(sample_direction_surface)
+    DRJIT_VCALL_METHOD(pdf_direction_surface)
+    DRJIT_VCALL_METHOD(sample_direction_volume)
+    DRJIT_VCALL_METHOD(pdf_direction_volume)
     DRJIT_VCALL_METHOD(sample_silhouette)
     DRJIT_VCALL_METHOD(invert_silhouette_sample)
     DRJIT_VCALL_METHOD(primitive_silhouette_projection)

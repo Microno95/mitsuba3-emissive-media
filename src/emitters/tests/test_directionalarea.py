@@ -84,7 +84,7 @@ def test03_sample_ray(variants_vec_spectral, spectrum_key):
     wav, spec = spectrum.sample_spectrum(it, mi.sample_shifted(wavelength_sample))
 
     # Sample a position on the shape
-    ps = shape.sample_position(time, pos_sample[:2])
+    ps = shape.sample_position_surface(time, pos_sample[:2])
 
     assert dr.allclose(res, spec * shape.surface_area())
     assert dr.allclose(ray.time, time)

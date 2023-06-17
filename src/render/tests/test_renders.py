@@ -181,9 +181,6 @@ def z_test(mean, sample_count, reference, reference_var):
 def test_render(variant, scene_fname, integrator_type, jit_flags_key):
     mi.set_variant(variant)
 
-    if 'direct' in integrator_type and 'cuda' in variant:
-        pytest.skip("Keeps failing for cuda modes :(")
-
     if 'cuda' in variant or 'llvm' in variant:
         dr.flush_malloc_cache()
         for k, v in JIT_FLAG_OPTIONS[jit_flags_key].items():

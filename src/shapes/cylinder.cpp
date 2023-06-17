@@ -261,7 +261,7 @@ public:
         return dr::Pi<ScalarFloat> * dr::sqr(m_radius.value()) * m_length.value();
     }
 
-    PositionSample3f sample_position(Float time, const Point2f &sample,
+    PositionSample3f sample_position_surface(Float time, const Point2f &sample,
                                      Mask active) const override {
         MI_MASK_ARGUMENT(active);
 
@@ -285,12 +285,12 @@ public:
         return ps;
     }
 
-    Float pdf_position(const PositionSample3f & /*ps*/, Mask active) const override {
+    Float pdf_position_surface(const PositionSample3f & /*ps*/, Mask active) const override {
         MI_MASK_ARGUMENT(active);
         return m_inv_surface_area;
     }
 
-    PositionSample3f sample_position_3d(Float time, const Point3f &sample,
+    PositionSample3f sample_position_volume(Float time, const Point3f &sample,
                                      Mask active) const override {
         MI_MASK_ARGUMENT(active);
 
@@ -314,7 +314,7 @@ public:
         return ps;
     }
 
-    Float pdf_position_3d(const PositionSample3f &ps, Mask active) const override {
+    Float pdf_position_volume(const PositionSample3f &ps, Mask active) const override {
         MI_MASK_ARGUMENT(active);
         const Transform4f& to_object = m_to_object.value();
         auto p_local = to_object.transform_affine(ps.p);

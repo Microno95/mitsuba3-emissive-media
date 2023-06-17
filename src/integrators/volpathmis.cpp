@@ -235,10 +235,7 @@ public:
 
                 // Compute emission, scatter and null event probabilities
                 auto radiance = medium->get_radiance(mei, active_medium);
-                auto [probabilities, weights] =
-                    medium->get_interaction_probabilities(radiance, mei, mis_weight(p_over_f));
-                auto [prob_scatter, prob_null] = probabilities;
-                auto [weight_scatter, weight_null] = weights;
+                auto [prob_scatter, prob_null] = std::get<0>(medium->get_interaction_probabilities(radiance, mei, mis_weight(p_over_f)));
 
                 Mask null_scatter = sampler->next_1d(active_medium) >= index_spectrum(prob_scatter, channel);
                 act_null_scatter |= null_scatter && active_medium;
@@ -264,15 +261,15 @@ public:
                 Mask active_medium_e = active_medium
                                        && dr::neq(emitter_medium, nullptr)
                                        && !(dr::eq(depth, 0u) && m_hide_emitters);
-//                if (dr::any_or<true>(active_medium_e)) {
-//                    if (dr::any_or<true>(active_medium_e && !count_direct_medium)) {
-//                        // Get the PDF of sampling this emitter using next event estimation
-//                        DirectionSample3f ds(mei, last_scatter_event);
-//                        Float emitter_pdf = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e);
-//                        update_weights(p_over_f_nee, emitter_pdf, 1.f, channel, active_medium_e);
-//                    }
-//                    dr::masked(weight, active_medium_e && !count_direct_medium) = mis_weight(p_over_f, p_over_f_nee);
-//                }
+                if (dr::any_or<true>(active_medium_e)) {
+                    if (dr::any_or<true>(active_medium_e && !count_direct_medium)) {
+                        // Get the PDF of sampling this emitter using next event estimation
+                        DirectionSample3f ds(mei, last_scatter_event);
+                        Float emitter_pdf = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e);
+                        update_weights(p_over_f_nee, emitter_pdf, 1.f, channel, active_medium_e);
+                    }
+                    dr::masked(weight, active_medium_e && !count_direct_medium) = mis_weight(p_over_f, p_over_f_nee);
+                }
                 dr::masked(result, active_medium_e) += weight * radiance;
 
                 if (dr::any_or<true>(act_null_scatter)) {

@@ -211,15 +211,15 @@ public:
                 Mask active_medium_e = active_medium
                                        && dr::neq(emitter_medium, nullptr)
                                        && !(dr::eq(depth, 0u) && m_hide_emitters);
-//                if (dr::any_or<true>(active_medium_e)) {
-//                    Float emitter_pdf = 1.0f;
-//                    if (dr::any_or<true>(active_medium_e && !count_direct_medium)) {
-//                        DirectionSample3f ds(mei, last_scatter_event);
-//                        dr::masked(emitter_pdf, active_medium_e && !count_direct_medium) = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e && !count_direct_medium);
-//                    }
-//                    // Get the PDF of sampling this emitter using next event estimation
-//                    dr::masked(weight, active_medium_e && !count_direct_medium) = mis_weight(last_scatter_direction_pdf, emitter_pdf);
-//                }
+                if (dr::any_or<true>(active_medium_e)) {
+                    Float emitter_pdf = 1.0f;
+                    if (dr::any_or<true>(active_medium_e && !count_direct_medium)) {
+                        DirectionSample3f ds(mei, last_scatter_event);
+                        dr::masked(emitter_pdf, active_medium_e && !count_direct_medium) = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e && !count_direct_medium);
+                    }
+                    // Get the PDF of sampling this emitter using next event estimation
+                    dr::masked(weight, active_medium_e && !count_direct_medium) = mis_weight(last_scatter_direction_pdf, emitter_pdf);
+                }
                 dr::masked(result, active_medium_e) += weight * contrib;
 
                 if (dr::any_or<true>(act_null_scatter))

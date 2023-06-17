@@ -117,20 +117,8 @@ public:
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleDirection, active);
         Assert(m_shape, "Can't sample from a volume emitter without an associated Shape.");
 
-        auto ps = m_shape->sample_position_3d(it.time, sample, active);
-        auto ds = DirectionSample3f(ps);
-
-        ds.time = it.time;
-        ds.p = ps.p;
-        ds.d = ps.p - it.p;
-        auto dist_squared = dr::squared_norm(ds.d);
-        ds.dist = dr::sqrt(dist_squared);
-        ds.d = ds.d / ds.dist;
-
-        ds.n = -ds.d;
-        ds.pdf = ps.pdf * dist_squared;
-        ds.delta = ps.delta;
-        ds.uv = dr::zeros<Point2f>();
+        auto ds = m_shape->sample_direction_volume(it, sample, active);
+        ds.emitter = this;
 
         auto si = dr::zeros<SurfaceInteraction3f>();
         si.time = ds.time;
@@ -146,13 +134,12 @@ public:
         return { ds, depolarizer<Spectrum>(spec) & active };
     }
 
-    Float pdf_direction(const Interaction3f &/*it*/, const DirectionSample3f &ds,
+    Float pdf_direction(const Interaction3f &it, const DirectionSample3f &ds,
                         Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
         MI_MASK_ARGUMENT(active);
 
-        Float pdf = pdf_position(ds, active);
-        pdf *= dr::sqr(ds.dist);
+        Float pdf = m_shape->pdf_direction_volume(it, ds, active);
 
         return dr::select(active, pdf, 0.f);
     }
@@ -174,7 +161,7 @@ public:
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSamplePosition, active);
         Assert(m_shape, "Cannot sample from a volume emitter without an associated Shape.");
 
-        auto ps = m_shape->sample_position_3d(time, sample, active);
+        auto ps = m_shape->sample_position_volume(time, sample, active);
         auto weight = dr::select(active && (ps.pdf > 0.f), dr::rcp(ps.pdf), 0.f);
 
         return { ps, weight };
@@ -182,7 +169,7 @@ public:
 
     Float pdf_position(const PositionSample3f &ps,
                        Mask active = true) const override {
-        return m_shape->pdf_position_3d(ps, active);
+        return m_shape->pdf_position_volume(ps, active);
     };
 
     std::pair<Wavelength, Spectrum>

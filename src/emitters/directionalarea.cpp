@@ -146,7 +146,8 @@ public:
                             "without an associated Shape.");
         }
 
-        PositionSample3f ps = m_shape->sample_position(time, Point2f(sample.x(), sample.y()), active);
+        PositionSample3f ps = m_shape->sample_position_surface(
+            time, Point2f(sample.x(), sample.y()), active);
         Float weight        = dr::select(ps.pdf > 0.f, dr::rcp(ps.pdf), 0.f);
         return { ps, weight };
     }
