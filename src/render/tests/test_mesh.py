@@ -1238,8 +1238,6 @@ def test34_volume_sampling(variants_all_rgb):
         "sample_count": 1
     })
 
-    mi.set_log_level(mi.LogLevel.Info)
-
     sampler.seed(0, 0 if "scalar" in variants_all_rgb else 256)
     time = mi.Float(0.0)
     active = mi.Mask(True)
@@ -1251,6 +1249,7 @@ def test34_volume_sampling(variants_all_rgb):
     assert dr.allclose(shape.pdf_position_volume(ps, active), ps.pdf)
 
     bbox_center = mi.PositionSample3f()
+    bbox_center.time = time
     bbox_center.p = shape.bbox().center()
     bbox_center.n = mi.Vector3f([1.0, 0.0, 0.0])
 

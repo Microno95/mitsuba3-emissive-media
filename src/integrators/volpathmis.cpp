@@ -252,8 +252,6 @@ public:
                 specular_chain &= !act_medium_scatter;
                 specular_chain |= act_medium_scatter && !sample_emitters;
 
-                auto weight = mis_weight(p_over_f);
-
                 // ---------------- Intersection with emitters ----------------
                 Mask ray_from_camera_medium = active_medium && dr::eq(depth, 0u);
                 Mask count_direct_medium = ray_from_camera_medium || specular_chain;
@@ -268,9 +266,9 @@ public:
                         Float emitter_pdf = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e);
                         update_weights(p_over_f_nee, emitter_pdf, 1.f, channel, active_medium_e);
                     }
-                    dr::masked(weight, active_medium_e && !count_direct_medium) = mis_weight(p_over_f, p_over_f_nee);
+                    Spectrum contrib = dr::select(count_direct_medium, mis_weight(p_over_f), mis_weight(p_over_f, p_over_f_nee)) * radiance;
+                    dr::masked(result, active_medium_e) += contrib;
                 }
-                dr::masked(result, active_medium_e) += weight * radiance;
 
                 if (dr::any_or<true>(act_null_scatter)) {
                     update_weights(p_over_f, prob_null, mei.sigma_n, channel, act_null_scatter);

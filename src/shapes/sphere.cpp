@@ -168,7 +168,7 @@ public:
         m_to_object = m_to_world.value().inverse();
 
         m_inv_surface_area = dr::rcp(surface_area());
-        m_inv_volume = dr::rcp(volume());
+        m_inv_volume = 3*dr::InvFourPi<Float>*dr::rcp(dr::sqr(m_radius.value())*m_radius.value());
 
         dr::make_opaque(m_radius, m_center, m_inv_surface_area, m_inv_volume);
         mark_dirty();
@@ -364,7 +364,13 @@ public:
         auto result = dr::zeros<DirectionSample3f>();
 
         auto ps = sample_position_volume(it.time, sample, active);
-        auto ray = Ray3f(it.p, ps.p, it.time, m_radius.value()*4.0f, it.wavelengths);
+        auto ray = Ray3f(
+            it.p,
+            dr::normalize(ps.p - it.p),
+            (1.0f + math::ShadowEpsilon<Float>)*(2.0f*m_radius.value() + dr::norm(ps.p - it.p)),
+            it.time,
+            it.wavelengths
+        );
 
         Vector3f dc_v = m_center.value() - it.p;
         Float dc_2 = dr::squared_norm(dc_v);
@@ -375,12 +381,18 @@ public:
         Mask outside_mask = active && dc_2 > dr::sqr(radius_adj);
 
         Float t0 = 0.0f, t1 = 0.0f;
+        auto inv_volume_cbrt = dr::pow(m_inv_volume, 1.0f/3.0f);
 
-        dr::masked(t0, outside_mask) = ray_intersect_preliminary(ray, outside_mask).t;
+        auto si = ray_intersect(ray, +RayFlags::Minimal, active);
+        active &= si.is_valid();
+        dr::masked(t0,  outside_mask) = si.t;
+        dr::masked(t1, !outside_mask && active) = si.t;
+        dr::masked(ray, outside_mask && active) = si.spawn_ray(ray.d);
+        si = ray_intersect(ray, +RayFlags::Minimal, outside_mask && active);
+        dr::masked(t1, outside_mask && active) = t0 + si.t;
 
-        ray.o = ray(t0 + math::RayEpsilon<Float>);
-        auto pi = ray_intersect_preliminary(ray, active);
-        t1 = pi.t;
+        t0 *= inv_volume_cbrt;
+        t1 *= inv_volume_cbrt;
 
         result.p = ps.p;
         result.uv = ps.uv;
@@ -388,7 +400,9 @@ public:
         result.delta = ps.delta;
         result.time = it.time;
         result.pdf = ps.pdf;
-        dr::masked(result.pdf, active && !result.delta) *= (dr::sqr(t1)*t1 - dr::sqr(t0)*t0)/3.0f;
+        result.dist = dr::norm(result.p - it.p);
+        result.d = ray.d;
+        dr::masked(result.pdf, active && !result.delta) = (dr::sqr(t1)*t1 - dr::sqr(t0)*t0)/3.0f;
 
         return result;
     }
@@ -397,8 +411,13 @@ public:
                                 Mask active) const override {
         MI_MASK_ARGUMENT(active);
 
-        auto pdf = pdf_position_volume(ds, active);
-        auto ray = Ray3f(it.p, ds.p, it.time, m_radius.value()*4.0f, it.wavelengths);
+        auto ray = Ray3f(
+            it.p,
+            dr::normalize(ds.p - it.p),
+            (1.0f + math::ShadowEpsilon<Float>)*(2.0f*m_radius.value() + dr::norm(ds.p - it.p)),
+            it.time,
+            it.wavelengths
+        );
 
         Vector3f dc_v = m_center.value() - it.p;
         Float dc_2 = dr::squared_norm(dc_v);
@@ -409,14 +428,20 @@ public:
         Mask outside_mask = active && dc_2 > dr::sqr(radius_adj);
 
         Float t0 = 0.0f, t1 = 0.0f;
-        dr::masked(t0, outside_mask) = ray_intersect_preliminary(ray, outside_mask).t;
+        auto inv_volume_cbrt = dr::pow(m_inv_volume, 1.0f/3.0f);
 
-        ray.o = ray(t0 + math::RayEpsilon<Float>);
-        auto pi = ray_intersect_preliminary(ray, active);
-        t1 = pi.t;
+        auto si = ray_intersect(ray, +RayFlags::Minimal, active);
+        active &= si.is_valid();
+        dr::masked(t0,  outside_mask) = si.t;
+        dr::masked(t1, !outside_mask && active) = si.t;
+        dr::masked(ray, outside_mask && active) = si.spawn_ray(ray.d);
+        si = ray_intersect(ray, +RayFlags::Minimal, outside_mask && active);
+        dr::masked(t1, outside_mask && active) = t0 + si.t;
 
-        dr::masked(pdf, active && !ds.delta) *= (dr::sqr(t1)*t1 - dr::sqr(t0)*t0)/3.0f;
-        return dr::select(active && !ds.delta, pdf, 0.0f);
+        t0 *= inv_volume_cbrt;
+        t1 *= inv_volume_cbrt;
+
+        return dr::select(active && (m_radius.value() > 0.f), (dr::sqr(t1)*t1 - dr::sqr(t0)*t0)/3.0f, 0.0f);
     }
 
     SurfaceInteraction3f eval_parameterization(const Point2f &uv,

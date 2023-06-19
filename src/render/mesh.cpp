@@ -60,10 +60,8 @@ void Mesh<Float, Spectrum>::initialize() {
     m_vertex_positions_ptr = m_vertex_positions.data();
     m_faces_ptr = m_faces.data();
 #endif
-    if (m_emitter || m_sensor) {
+    if (m_emitter || m_sensor)
         ensure_pmf_built();
-        build_volume_parameterization();
-    }
     mark_dirty();
 
     if constexpr (dr::is_jit_v<Float>) {
@@ -752,10 +750,19 @@ MI_VARIANT void Mesh<Float, Spectrum>::build_volume_parameterization() {
     ref<Mesh> mesh =
         new Mesh(m_name + "_vol_param", m_vertex_count, m_face_count,
                  props, has_vertex_normals(), false);
-    mesh->m_faces = m_faces;
-    mesh->m_vertex_positions = m_vertex_positions;
+
+    auto&& vertex_positions = dr::migrate(m_vertex_positions, AllocType::Host);
+    auto&& faces = dr::migrate(m_faces, AllocType::Host);
+    if constexpr (dr::is_jit_v<Float>)
+        dr::sync_thread();
+
+    mesh->m_faces = faces;
+    mesh->m_vertex_positions = vertex_positions;
     if (has_vertex_normals()) {
-        mesh->m_vertex_normals = m_vertex_normals;
+        auto&& vertex_normals = dr::migrate(m_vertex_normals, AllocType::Host);
+        if constexpr (dr::is_jit_v<Float>)
+            dr::sync_thread();
+        mesh->m_vertex_normals = vertex_normals;
     }
     mesh->m_bbox = m_bbox;
     mesh->m_to_world = m_to_world.value();
@@ -767,7 +774,6 @@ MI_VARIANT void Mesh<Float, Spectrum>::build_volume_parameterization() {
         props.set_object("parent_scene", m_scene);
 
     m_volume_parameterization = new Scene<Float, Spectrum>(props);
-    dr::sync_thread();
 }
 
 MI_VARIANT typename Mesh<Float, Spectrum>::ScalarSize
@@ -881,7 +887,7 @@ Mesh<Float, Spectrum>::sample_direction_volume(const Interaction3f &it, const Po
     result.n = warp::square_to_uniform_sphere(Point2f(sample.x(), sample.y()));
     result.time = it.time;
     result.dist = dr::norm(result.p - it.p);
-    result.pdf = dr::select(result.delta, 1.0f, pdf_direction_volume(it, result, active));
+    result.pdf = dr::select(result.delta, 1.0f*dr::sqr(result.dist), pdf_direction_volume(it, result, active));
 
     return result;
 }
@@ -928,31 +934,32 @@ MI_VARIANT Float Mesh<Float, Spectrum>::pdf_position_volume(const PositionSample
 
     active &= !delta;
     UInt32 num_intersections = 0;
-    Mask is_inside = active;
 
-    auto ray = Ray3f(ps.p, ps.n, ps.time);
+    auto ray = Ray3f(ps.p, dr::normalize(ps.p - m_bbox.center() + Vector3f(1.0, 0.0, 0.0)), ps.time);
     ray.maxt = dr::norm(m_bbox.extents());
     ray.wavelengths = dr::zeros<Wavelength>();
 
     auto si = dr::zeros<SurfaceInteraction3f>();
+    auto pi = dr::zeros<PreliminaryIntersection3f>();
     auto loop_name = "Mesh[" + std::string(m_name) + "] - PDF Position Volume";
 
-    dr::Loop<Mask> loop(loop_name.c_str(), si,
+    dr::Loop<Mask> loop(loop_name.c_str(), si, pi,
                         active, ray, num_intersections, *this);
     loop.set_max_iterations(m_face_count);
     while (loop(active)) {
-        dr::masked(si, active) = m_volume_parameterization->ray_intersect(
-            ray, +RayFlags::Minimal, true, active
+        pi = m_volume_parameterization->ray_intersect_preliminary(
+            ray, true, active
         );
-        active &= si.is_valid() && (si.t > 0.f);
+        active &= pi.is_valid() && (pi.t > 0.f);
         dr::masked(num_intersections, active) += 1;
-//        dr::masked(si, active) = compute_surface_interaction(ray, pi_loop, +RayFlags::Minimal, 0, active);
-//        si.finalize_surface_interaction(pi_loop, ray, +RayFlags::Minimal, active);
+        dr::masked(si, active) = compute_surface_interaction(ray, pi, +RayFlags::Minimal, 0, active);
+        si.finalize_surface_interaction(pi, ray, +RayFlags::Minimal, active);
+        auto maxt = ray.maxt - si.t;
         dr::masked(ray, active) = si.spawn_ray(ray.d);
+        dr::masked(ray.maxt, active) = maxt;
     }
 
-    is_inside &= num_intersections % 2;
-    return dr::select(is_inside, m_inv_volume, 0.f);
+    return dr::select((num_intersections % 2), m_inv_volume, 0.f);
 }
 
 MI_VARIANT Float Mesh<Float, Spectrum>::pdf_direction_volume(const Interaction3f &it, const DirectionSample3f &ds,
@@ -986,6 +993,12 @@ MI_VARIANT Float Mesh<Float, Spectrum>::pdf_direction_volume(const Interaction3f
     si.finalize_surface_interaction(pi, ray, +RayFlags::Minimal, active);
 
     /// We're inside if the ray direction is congruent with the normal
+    auto ps = dr::zeros<PositionSample3f>();
+    ps.p = ray.o;
+    ps.n = ray.d;
+    ps.time = it.time;
+    ps.uv = dr::zeros<Point2f>();
+    ps.delta = delta;
     Mask is_inside = (dr::dot(ray.d, si.n) > 0.0f);
 
     UInt32 num_intersections = dr::select(is_inside, 1, 0);
@@ -1001,12 +1014,7 @@ MI_VARIANT Float Mesh<Float, Spectrum>::pdf_direction_volume(const Interaction3f
     /// to triangle cases to intersect more than the number of faces in the mesh
     loop.set_max_iterations(m_face_count);
     while (loop(active)) {
-//        dr::eval();
-//        Log(mitsuba::LogLevel::Debug, "[%s] %s %s %s %s", is_inside, ray, t0, t1, pdf_integral);
         /// Preliminary intersection to see if the ray intersects the geometry
-//        dr::masked(si, active) = m_volume_parameterization->ray_intersect(
-//            ray, +RayFlags::Minimal, true, active
-//        );
         pi = m_volume_parameterization->ray_intersect_preliminary(
             ray, true, active
         );
@@ -1027,25 +1035,29 @@ MI_VARIANT Float Mesh<Float, Spectrum>::pdf_direction_volume(const Interaction3f
         /// We assume that the medium has a constant volumetric pdf equal to
         /// the inverse of its volume and thus the integral of the pdf
         /// in the ray direction is simply the integral of r^2 dr from t0 to t1.
-        auto integral = (dr::sqr(t1*inv_volume_cbrt)*t1*inv_volume_cbrt - dr::sqr(t0*inv_volume_cbrt)*t0*inv_volume_cbrt)/3.0f;
+
+        /// First we rescale the distances according to the 'length scale'
+        /// derived from the volume.
+        auto st0 = t0*inv_volume_cbrt, st = si.t * inv_volume_cbrt;
+        /// We need to compute (t1**3 - t0**3)/3, but we can factor this into
+        /// (t1 - t0)*(t1**2 - t0*t1 + t0**2)/3 =
+        ///                         (t1 - t0)*((t1 - t0)**2 + 3*t1*t0)/3
+        /// Where (t1 - t0) = si.t, which after subbing gives
+        /// si.t*(si.t**2 + 3*(t0**2 + t0*si.t))/3
+        auto integral = st * (dr::sqr(st) + 3.0f*(dr::sqr(st0) + st0*st))/3.0f;
         auto kahan_t = integral + pdf_integral;
         dr::masked(kahan_c, is_inside && active) += dr::select(dr::abs(pdf_integral) >= dr::abs(integral), (pdf_integral - kahan_t) + integral, (integral - kahan_t) + pdf_integral);
-        dr::masked(pdf_integral, is_inside && active) = integral;
+        dr::masked(pdf_integral, is_inside && active) = kahan_t;
 
         /// Finally we update our mask that tracks whether we're
         /// inside or outside the shape and spawn a new ray
         is_inside = (num_intersections % 2);
-        Float mag = (1.f + dr::max(dr::abs(si.p))) * math::RayEpsilon<Float>;
-        mag = dr::detach(dr::mulsign(mag, dr::dot(si.n, ray.d)));
-        dr::masked(ray.o, active) = dr::fmadd(mag, dr::detach(si.n), si.p);
-        dr::masked(ray.maxt, active) -= mag + si.t;
-        dr::masked(t0,  is_inside && active) += mag * dr::dot(si.n, ray.d);
-        dr::masked(t1, !is_inside && active) += mag * dr::dot(si.n, ray.d);
+        auto maxt = ray.maxt - si.t;
+        dr::masked(ray, active) = si.spawn_ray(ray.d);
+        dr::masked(ray.maxt, active) = maxt;
     }
-//    dr::eval();
-//    Log(mitsuba::LogLevel::Debug, "[%s] %s %s %s %s", is_inside, ray, t0, t1, pdf_integral);
 
-    return dr::select(delta, 0.0f, pdf_integral);
+    return dr::select(delta, 0.0f, pdf_integral + kahan_c);
 }
 
 //! @}

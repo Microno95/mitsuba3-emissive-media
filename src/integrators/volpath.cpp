@@ -201,9 +201,6 @@ public:
                 act_null_scatter   |=  null_scatter && active_medium;
                 act_medium_scatter |= !null_scatter && active_medium;
 
-                auto contrib = throughput * radiance;
-                Spectrum weight = 1.0f;
-
                 // ---------------- Intersection with emitters ----------------
                 Mask ray_from_camera_medium = active_medium && dr::eq(depth, 0u);
                 Mask count_direct_medium = ray_from_camera_medium || specular_chain;
@@ -215,12 +212,13 @@ public:
                     Float emitter_pdf = 1.0f;
                     if (dr::any_or<true>(active_medium_e && !count_direct_medium)) {
                         DirectionSample3f ds(mei, last_scatter_event);
-                        dr::masked(emitter_pdf, active_medium_e && !count_direct_medium) = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e && !count_direct_medium);
+                        dr::masked(emitter_pdf, active_medium_e && !count_direct_medium) = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e);
                     }
                     // Get the PDF of sampling this emitter using next event estimation
-                    dr::masked(weight, active_medium_e && !count_direct_medium) = mis_weight(last_scatter_direction_pdf, emitter_pdf);
+                    Spectrum contrib = dr::select(count_direct_medium, throughput * radiance,
+                               throughput * mis_weight(last_scatter_direction_pdf, emitter_pdf) * radiance);
+                    dr::masked(result, active_medium_e) += contrib;
                 }
-                dr::masked(result, active_medium_e) += weight * contrib;
 
                 if (dr::any_or<true>(act_null_scatter))
                 {
