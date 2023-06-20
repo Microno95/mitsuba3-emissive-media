@@ -242,16 +242,6 @@ public:
                 act_medium_scatter |= !null_scatter && active_medium;
                 last_event_was_null = act_null_scatter;
 
-                // Count this as a bounce
-                dr::masked(depth, act_medium_scatter) += 1;
-                dr::masked(last_scatter_event, act_medium_scatter) = mei;
-                Mask sample_emitters = mei.medium->use_emitter_sampling();
-
-                active &= depth < (uint32_t) m_max_depth;
-                act_medium_scatter &= active;
-                specular_chain &= !act_medium_scatter;
-                specular_chain |= act_medium_scatter && !sample_emitters;
-
                 // ---------------- Intersection with emitters ----------------
                 Mask ray_from_camera_medium = active_medium && dr::eq(depth, 0u);
                 Mask count_direct_medium = ray_from_camera_medium || specular_chain;
@@ -278,6 +268,14 @@ public:
                     dr::masked(si.t, act_null_scatter) = si.t - mei.t;
                 }
 
+                // Count this as a bounce
+                dr::masked(depth, act_medium_scatter) += 1;
+                dr::masked(last_scatter_event, act_medium_scatter) = mei;
+
+                // Don't estimate lighting if we exceeded number of bounces
+                active &= depth < (uint32_t) m_max_depth;
+                act_medium_scatter &= active;
+
                 if (dr::any_or<true>(act_medium_scatter)) {
                     update_weights(p_over_f, prob_scatter, mei.sigma_s, channel, act_medium_scatter);
 
@@ -285,6 +283,10 @@ public:
                     auto phase = mei.medium->phase_function();
 
                     // --------------------- Emitter sampling ---------------------
+                    Mask sample_emitters = mei.medium->use_emitter_sampling();
+                    specular_chain &= !act_medium_scatter;
+                    specular_chain |= act_medium_scatter && !sample_emitters;
+
                     valid_ray |= act_medium_scatter;
                     Mask active_e = act_medium_scatter && sample_emitters; // TODO: Enable MIS with volume emitters
                     if (dr::any_or<true>(active_e)) {
@@ -349,7 +351,6 @@ public:
 
             active_surface &= si.is_valid();
             if (dr::any_or<true>(active_surface)) {
-
                 // --------------------- Emitter sampling ---------------------
                 BSDFContext ctx;
                 BSDFPtr bsdf  = si.bsdf(ray);

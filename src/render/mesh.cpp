@@ -862,7 +862,7 @@ Mesh<Float, Spectrum>::sample_position_volume(Float time, const Point3f &sample,
             bbox_extent = m_bbox.extents();
     auto test_ray = dr::zeros<Ray3f>();
 
-    PositionSample3f ps;
+    auto ps = dr::zeros<PositionSample3f>();
     ps.p = sample * bbox_extent + bbox_min;
     ps.n = warp::square_to_uniform_sphere(Point2f(sample.x(), sample.y()));
     ps.time = time;
