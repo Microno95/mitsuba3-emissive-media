@@ -118,7 +118,6 @@ public:
         Assert(m_shape, "Can't sample from a volume emitter without an associated Shape.");
 
         auto ds = m_shape->sample_direction_volume(it, sample, active);
-        ds.emitter = this;
 
         auto si = dr::zeros<SurfaceInteraction3f>();
         si.time = ds.time;
@@ -128,7 +127,7 @@ public:
         si.n = ds.n;
         active &= ds.pdf > 0.f;
 
-        UnpolarizedSpectrum spec = m_radiance->eval(si, active) / ds.pdf;
+        UnpolarizedSpectrum spec = dr::select(active, m_radiance->eval(si, active) / ds.pdf, 0.0f);
         ds.emitter = this;
 
         return { ds, depolarizer<Spectrum>(spec) & active };

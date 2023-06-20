@@ -362,37 +362,7 @@ public:
         MI_MASK_ARGUMENT(active);
 
         auto result = dr::zeros<DirectionSample3f>();
-
         auto ps = sample_position_volume(it.time, sample, active);
-        auto ray = Ray3f(
-            it.p,
-            dr::normalize(ps.p - it.p),
-            (1.0f + math::ShadowEpsilon<Float>)*(2.0f*m_radius.value() + dr::norm(ps.p - it.p)),
-            it.time,
-            it.wavelengths
-        );
-
-        Vector3f dc_v = m_center.value() - it.p;
-        Float dc_2 = dr::squared_norm(dc_v);
-
-        Float radius_adj = m_radius.value() * (m_flip_normals ?
-                                               (1.f + math::RayEpsilon<Float>) :
-                                               (1.f - math::RayEpsilon<Float>));
-        Mask outside_mask = active && dc_2 > dr::sqr(radius_adj);
-
-        Float t0 = 0.0f, t1 = 0.0f;
-        auto inv_volume_cbrt = dr::pow(m_inv_volume, 1.0f/3.0f);
-
-        auto si = ray_intersect(ray, +RayFlags::Minimal, active);
-        active &= si.is_valid();
-        dr::masked(t0,  outside_mask) = si.t;
-        dr::masked(t1, !outside_mask && active) = si.t;
-        dr::masked(ray, outside_mask && active) = si.spawn_ray(ray.d);
-        si = ray_intersect(ray, +RayFlags::Minimal, outside_mask && active);
-        dr::masked(t1, outside_mask && active) = t0 + si.t;
-
-        t0 *= inv_volume_cbrt;
-        t1 *= inv_volume_cbrt;
 
         result.p = ps.p;
         result.uv = ps.uv;
@@ -400,9 +370,12 @@ public:
         result.delta = ps.delta;
         result.time = it.time;
         result.pdf = ps.pdf;
-        result.dist = dr::norm(result.p - it.p);
-        result.d = ray.d;
-        dr::masked(result.pdf, active && !result.delta) = (dr::sqr(t1)*t1 - dr::sqr(t0)*t0)/3.0f;
+        result.d = result.p - it.p;
+        result.dist = dr::norm(result.d);
+        result.d = result.d / result.dist;
+        auto pdf = pdf_direction_volume(it, result, active && !result.delta);
+        dr::masked(result.pdf, active && !result.delta) = pdf;
+        dr::masked(result.pdf, !active || (result.dist < math::ShadowEpsilon<Float>)) = 0.0f;
 
         return result;
     }
@@ -413,35 +386,57 @@ public:
 
         auto ray = Ray3f(
             it.p,
-            dr::normalize(ds.p - it.p),
-            (1.0f + math::ShadowEpsilon<Float>)*(2.0f*m_radius.value() + dr::norm(ds.p - it.p)),
+            ds.d,
+            (1.0f + math::ShadowEpsilon<Float>)*(2.0f*m_radius.value() + ds.dist),
             it.time,
             it.wavelengths
         );
 
-        Vector3f dc_v = m_center.value() - it.p;
-        Float dc_2 = dr::squared_norm(dc_v);
+        Float radius = m_radius.value();
+        Vector3f center = m_center.value();
+        auto inv_radius = dr::rcp(radius);
 
-        Float radius_adj = m_radius.value() * (m_flip_normals ?
-                                                               (1.f + math::RayEpsilon<Float>) :
-                                                               (1.f - math::RayEpsilon<Float>));
-        Mask outside_mask = active && dc_2 > dr::sqr(radius_adj);
+        // We define a plane which is perpendicular to the ray direction and
+        // contains the sphere center and intersect it. We then solve the
+        // ray-sphere intersection as if the ray origin was this new
+        // intersection point. This additional step makes the whole intersection
+        // routine numerically more robust.
 
-        Float t0 = 0.0f, t1 = 0.0f;
-        auto inv_volume_cbrt = dr::pow(m_inv_volume, 1.0f/3.0f);
+        Vector3f l = ray.o - center;
+        Vector3f d(ray.d);
+        Float plane_t = dot(-l, d) / norm(d);
 
-        auto si = ray_intersect(ray, +RayFlags::Minimal, active);
-        active &= si.is_valid();
-        dr::masked(t0,  outside_mask) = si.t;
-        dr::masked(t1, !outside_mask && active) = si.t;
-        dr::masked(ray, outside_mask && active) = si.spawn_ray(ray.d);
-        si = ray_intersect(ray, +RayFlags::Minimal, outside_mask && active);
-        dr::masked(t1, outside_mask && active) = t0 + si.t;
+        // Ray is perpendicular to plane
+        dr::mask_t<Float> no_hit =
+            dr::eq(plane_t, 0) && dr::all(dr::neq(ray.o, center));
 
-        t0 *= inv_volume_cbrt;
-        t1 *= inv_volume_cbrt;
+        Vector3f plane_p = ray(plane_t);
 
-        return dr::select(active && (m_radius.value() > 0.f), (dr::sqr(t1)*t1 - dr::sqr(t0)*t0)/3.0f, 0.0f);
+        // Intersection with plane outside of the sphere
+        no_hit &= (norm(plane_p - center) > radius);
+
+        Vector3f o = plane_p - center;
+
+        Float A = dr::squared_norm(d);
+        Float B = 2.0f * dr::dot(o, d);
+        Float C = dr::squared_norm(o) - dr::sqr(radius);
+
+        auto [solution_found, near_t, far_t] = math::solve_quadratic(A, B, C);
+
+        near_t += plane_t;
+        far_t += plane_t;
+
+        // Sphere doesn't intersect with the segment on the ray
+        dr::mask_t<Float> out_bounds = !(near_t <= ray.maxt && far_t >= 0.0f); // NaN-aware conditionals
+
+        active &= solution_found && !no_hit && !out_bounds;
+
+        near_t = dr::clamp(near_t, 0.0f, dr::Infinity<Float>);
+
+        near_t *= inv_radius;
+        far_t *= inv_radius;
+
+        return dr::select(active && (m_radius.value() > 0.f), (dr::sqr(far_t)*far_t - dr::sqr(near_t)*near_t)*dr::InvFourPi<Float>, 0.0f);
     }
 
     SurfaceInteraction3f eval_parameterization(const Point2f &uv,

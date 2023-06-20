@@ -35,7 +35,7 @@ def create_emitter_and_spectrum(s_key='d65'):
 
 @fresolver_append_path
 def create_emitter_rgb():
-    r, c = 0.5, mi.ScalarPoint3f([22.0, 0.0, 0.0])
+    r, c = 1.0, mi.ScalarPoint3f([0.0, 0.0, 0.0])
     emitter = mi.load_dict({
         "type": "sphere",
         "radius": r,
@@ -190,7 +190,7 @@ def test06_sample_direction_rgb(variants_vec_rgb):
     it.time = 1.0
 
     # Sample direction on the emitter
-    samples = mi.Point3f([[0.0, 0.5, 0.0, 0.123, 0.01], [0.0, 0.5, 0.9, 0.21, 0.895], [0.1, 0.5, 0.0, 0.647, 0.25]])
+    samples = mi.Point3f([[0.01, 0.5, 0.0, 0.123, 0.01], [0.20, 0.5, 0.9, 0.21, 0.895], [0.1, 0.5, 0.0, 0.647, 0.25]])
 
     ds, res = emitter.sample_direction(it, samples)
 
