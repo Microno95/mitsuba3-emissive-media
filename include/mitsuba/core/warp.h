@@ -300,7 +300,7 @@ MI_INLINE Point<Value, 3> uniform_sphere_to_cube(const Vector<Value, 3> &p) {
     };
 }
 
-/// Density of \ref square_to_uniform_sphere() with respect to solid angles
+/// Density of \ref cube_to_uniform_sphere() with respect to volume
 template <bool TestDomain = false, typename Value>
 MI_INLINE Value cube_to_uniform_sphere_pdf(const Vector<Value, 3> &v) {
     DRJIT_MARK_USED(v);
