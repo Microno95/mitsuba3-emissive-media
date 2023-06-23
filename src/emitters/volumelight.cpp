@@ -117,7 +117,19 @@ public:
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleDirection, active);
         Assert(m_shape, "Can't sample from a volume emitter without an associated Shape.");
 
-        auto ds = m_shape->sample_direction_volume(it, sample, active);
+        auto ps = m_shape->sample_position_volume(it.time, sample, active);
+        auto ds = dr::zeros<DirectionSample3f>();
+        ds.p = ps.p;
+        ds.time = it.time;
+        ds.emitter = this;
+        ds.n = ps.n;
+        ds.delta = ps.delta;
+        ds.d = ds.p - it.p;
+        auto dist_squared = dr::squared_norm(ds.d);
+        ds.pdf = ps.pdf * dist_squared;
+        ds.dist = dr::sqrt(dist_squared);
+        ds.d[ds.dist > 0.f] = ds.d / ds.dist;
+        ds.uv = ps.uv;
 
         auto si = dr::zeros<SurfaceInteraction3f>();
         si.time = ds.time;
@@ -127,8 +139,7 @@ public:
         si.n = ds.n;
         active &= ds.pdf > 0.f;
 
-        UnpolarizedSpectrum spec = dr::select(active, m_radiance->eval(si, active) / ds.pdf, 0.0f);
-        ds.emitter = this;
+        UnpolarizedSpectrum spec = dr::select(active && ds.dist > 0.f, m_radiance->eval(si, active) / ds.pdf, 0.0f);
 
         return { ds, depolarizer<Spectrum>(spec) & active };
     }
@@ -138,7 +149,15 @@ public:
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointEvaluate, active);
         MI_MASK_ARGUMENT(active);
 
-        Float pdf = m_shape->pdf_direction_volume(it, ds, active);
+        auto ps = dr::zeros<PositionSample3f>();
+        ps.p = ds.p;
+        ps.n = ds.n;
+        ps.delta = ds.delta;
+        ps.pdf = ds.pdf;
+        ps.time = ds.time;
+        ps.uv = ds.uv;
+
+        Float pdf = m_shape->pdf_position_volume(ps, active) * dr::squared_norm(it.p - ds.p);
 
         return dr::select(active, pdf, 0.f);
     }
