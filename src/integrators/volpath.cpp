@@ -231,7 +231,7 @@ public:
                     }
                     // Get the PDF of sampling this emitter using next event estimation
                     Spectrum weight = dr::select(count_direct_medium, 1.0f,
-                                                 mis_weight(emitter_pdf, last_scatter_direction_pdf));
+                                                 mis_weight(last_scatter_direction_pdf, emitter_pdf));
                     dr::masked(result, active_medium_e) += weight * throughput * radiance;
                 }
 
@@ -313,7 +313,7 @@ public:
                     }
                     Spectrum emitted = emitter->eval(si, active_e);
                     Spectrum contrib = dr::select(count_direct, throughput * emitted,
-                                                  throughput * mis_weight(emitter_pdf, last_scatter_direction_pdf) * emitted);
+                                                  throughput * mis_weight(last_scatter_direction_pdf, emitter_pdf) * emitted);
                     dr::masked(result, active_e) += contrib;
                 }
             }
@@ -426,6 +426,9 @@ public:
         dr::masked(emitter_val, dr::eq(ds.pdf, 0.f)) = 0.f;
         active &= dr::neq(ds.pdf, 0.f);
 
+        Mask is_medium_emitter = active && has_flag(ds.emitter->flags(), EmitterFlags::Medium);
+        emitter_val[is_medium_emitter] = 0.0f;
+
         if (dr::none_or<false>(active)) {
             return { emitter_val, ds };
         }
@@ -445,7 +448,7 @@ public:
 
         dr::Loop<Mask> loop("Volpath integrator emitter sampling");
         loop.put(active, ray, total_dist, needs_intersection, medium, si,
-                 mei, transmittance);
+                 mei, transmittance, emitter_val);
         sampler->loop_put(loop);
         loop.init();
         while (loop(dr::detach(active))) {
@@ -488,6 +491,14 @@ public:
                 dr::masked(mei, escaped_medium) = dr::zeros<MediumInteraction3f>();
 
                 dr::masked(total_dist, active_medium) += dr::minimum(mei.t, remaining_dist);
+
+                EmitterPtr medium_em = mei.emitter(active_medium);
+                Mask is_sampled_medium = active_medium && dr::eq(medium_em, ds.emitter);
+                auto radiance = medium->get_radiance(mei, active_medium);
+                if (dr::any_or<true>(is_sampled_medium)) {
+                    PositionSample3f ps(mei);
+                    emitter_val[is_sampled_medium] += transmittance * radiance * dr::rcp(ds.pdf);
+                }
 
                 is_spectral &= active_medium;
                 not_spectral &= active_medium;
@@ -533,7 +544,10 @@ public:
                 dr::masked(medium, has_medium_trans) = si.target_medium(ray.d);
             }
         }
-        return { transmittance * emitter_val, ds };
+
+        emitter_val[!is_medium_emitter] *= transmittance;
+
+        return {emitter_val, ds };
     }
 
     //! @}

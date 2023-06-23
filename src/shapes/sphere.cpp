@@ -356,34 +356,9 @@ public:
         );
     }
 
-    DirectionSample3f sample_direction_volume(const Interaction3f &it,
-                                              const Point3f &sample,
-                                              Mask active) const override {
-        MI_MASK_ARGUMENT(active);
-
-        auto result = dr::zeros<DirectionSample3f>();
-        auto ps = sample_position_volume(it.time, sample, active);
-
-        result.p = ps.p;
-        result.uv = ps.uv;
-        result.n = ps.n;
-        result.delta = ps.delta;
-        result.time = it.time;
-        result.pdf = ps.pdf;
-        result.d = result.p - it.p;
-        result.dist = dr::norm(result.d);
-        result.d = result.d / result.dist;
-        auto pdf = pdf_direction_volume(it, result, active && !result.delta);
-        dr::masked(result.pdf, active && !result.delta) = pdf;
-        dr::masked(result.pdf, !active || (result.dist < math::ShadowEpsilon<Float>)) = 0.0f;
-
-        return result;
-    }
-
-    Float pdf_direction_volume(const Interaction3f &it, const DirectionSample3f &ds,
-                                Mask active) const override {
-        MI_MASK_ARGUMENT(active);
-
+    std::pair<Float, Float> get_intersection_extents(const Interaction3f &it,
+                                                     const DirectionSample3f &ds,
+                                                     Mask active) const {
         auto ray = Ray3f(
             it.p,
             ds.d,
@@ -394,7 +369,6 @@ public:
 
         Float radius = m_radius.value();
         Vector3f center = m_center.value();
-        auto inv_radius = dr::rcp(radius);
 
         // We define a plane which is perpendicular to the ray direction and
         // contains the sphere center and intersect it. We then solve the
@@ -432,6 +406,45 @@ public:
         active &= solution_found && !no_hit && !out_bounds;
 
         near_t = dr::clamp(near_t, 0.0f, dr::Infinity<Float>);
+
+        dr::masked(near_t, !active) = 0.0f;
+        dr::masked(far_t, !active) = 0.0f;
+
+        return std::make_pair(near_t, far_t);
+    }
+
+    DirectionSample3f sample_direction_volume(const Interaction3f &it,
+                                              const Point3f &sample,
+                                              Mask active) const override {
+        MI_MASK_ARGUMENT(active);
+
+        auto ds = dr::zeros<DirectionSample3f>();
+        auto ps = sample_position_volume(it.time, sample, active);
+
+        ds.p = ps.p;
+        ds.uv = ps.uv;
+        ds.n = ps.n;
+        ds.delta = ps.delta;
+        ds.time = it.time;
+        ds.pdf = ps.pdf;
+        ds.d = ds.p - it.p;
+        ds.dist = dr::norm(ds.d);
+        ds.d = ds.d / ds.dist;
+        auto [near_t, far_t] = get_intersection_extents(it, ds, active);
+        auto t0 = near_t*dr::rcp(m_radius.value()), t1 = far_t*dr::rcp(m_radius.value());
+        auto pdf = (dr::sqr(t1)*t1 - dr::sqr(t0)*t0)*dr::InvFourPi<Float>;
+        ds.pdf = dr::select(ds.delta, 1.0f*dr::squared_norm(ds.p - it.p), pdf);
+        ds.dist = far_t;
+
+        return ds;
+    }
+
+    Float pdf_direction_volume(const Interaction3f &it, const DirectionSample3f &ds,
+                                Mask active) const override {
+        MI_MASK_ARGUMENT(active);
+
+        auto [near_t, far_t] = get_intersection_extents(it, ds, active);
+        auto inv_radius = dr::rcp(m_radius.value());
 
         near_t *= inv_radius;
         far_t *= inv_radius;
