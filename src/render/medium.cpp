@@ -140,7 +140,7 @@ Medium<Float, Spectrum>::get_radiance(const MediumInteraction3f &mi,
 }
 
 MI_VARIANT
-std::tuple<std::pair<typename Medium<Float, Spectrum>::UnpolarizedSpectrum,
+std::pair<std::pair<typename Medium<Float, Spectrum>::UnpolarizedSpectrum,
                      typename Medium<Float, Spectrum>::UnpolarizedSpectrum>,
            std::pair<typename Medium<Float, Spectrum>::UnpolarizedSpectrum,
                      typename Medium<Float, Spectrum>::UnpolarizedSpectrum>>
@@ -178,8 +178,8 @@ Medium<Float, Spectrum>::get_interaction_probabilities(const Spectrum &radiance,
                dr::neq(weight_scatter, weight_scatter) ||
                    !(dr::abs(weight_scatter) < dr::Infinity<Float>) ) = 0.f;
 
-    return std::tuple{ std::pair{ prob_scatter, prob_null },
-                       std::pair{ weight_scatter, weight_null } };
+    return std::make_pair(std::make_pair(prob_scatter, prob_null),
+                          std::make_pair(weight_scatter, weight_null));
 }
 
 static std::mutex set_dependency_lock_medium;
