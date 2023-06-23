@@ -433,7 +433,7 @@ public:
         auto [near_t, far_t] = get_intersection_extents(it, ds, active);
         auto t0 = near_t*dr::rcp(m_radius.value()), t1 = far_t*dr::rcp(m_radius.value());
         auto pdf = (dr::sqr(t1)*t1 - dr::sqr(t0)*t0)*dr::InvFourPi<Float>;
-        ds.pdf = dr::select(ds.delta, 1.0f*dr::squared_norm(ds.p - it.p), pdf);
+        ds.pdf = dr::select(ds.delta, dr::squared_norm(ds.p - it.p), pdf);
         ds.dist = far_t;
 
         return ds;

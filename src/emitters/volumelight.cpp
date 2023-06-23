@@ -128,7 +128,7 @@ public:
         si.n = ds.n;
         active &= ds.pdf > 0.f;
 
-        UnpolarizedSpectrum spec = dr::select(active && ds.dist > 0.f, m_radiance->eval(si, active) / ds.pdf, 0.0f);
+        UnpolarizedSpectrum spec = dr::select(active, m_radiance->eval(si, active) / ds.pdf, 0.0f);
 
         return { ds, depolarizer<Spectrum>(spec) & active };
     }
