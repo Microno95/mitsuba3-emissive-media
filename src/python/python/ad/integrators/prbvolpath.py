@@ -96,7 +96,7 @@ class PRBVolpathIntegrator(RBIntegrator):
                     self.handle_null_scattering = self.handle_null_scattering or (
                         not medium.is_homogeneous()) or medium.is_emitter()
         self.is_prepared = True
-        # By default enable always NEE in case there are surfaces
+        # By default, always enable NEE in case there are surfaces
         self.use_nee = True
 
     def sample(self,
@@ -197,22 +197,21 @@ class PRBVolpathIntegrator(RBIntegrator):
                 if self.use_nee:
                     emitter_pdf = scene.pdf_emitter_direction(last_scatter_event, ds, active_e_medium)
                     emitter_weight = dr.select(
-                        active_e_medium & ~count_direct_medium,
+                        count_direct_medium,
+                        1.0,
                         mis_weight(last_scatter_direction_pdf, emitter_pdf),
-                        1.0
                     )
                 else:
                     emitter_weight = mi.Float(1.0)
 
-                contrib_medium = throughput * dr.detach(weight) * emitter_weight * radiance
+                contrib_medium = throughput * emitter_weight * radiance * weight
 
                 if self.handle_null_scattering:
                     (prob_scatter, _), (weight_scatter, weight_null) = medium.get_interaction_probabilities(
                         radiance, mei, throughput * weight
                     )
 
-                    act_null_scatter = (sampler.next_1d(active_medium) >= index_spectrum(prob_scatter,
-                                                                                         channel)) & active_medium
+                    act_null_scatter = (sampler.next_1d(active_medium) >= index_spectrum(prob_scatter, channel)) & active_medium
                     act_medium_scatter = ~act_null_scatter & active_medium
                     weight[act_null_scatter] *= mei.sigma_n * dr.detach(index_spectrum(weight_null, channel))
                 else:
@@ -391,6 +390,9 @@ class PRBVolpathIntegrator(RBIntegrator):
         emitter_val[invalid] = 0.0
         active &= ~invalid
 
+        is_medium_emitter = active & mi.has_flag(ds.emitter.flags(), mi.EmitterFlags.Medium)
+        emitter_val[is_medium_emitter] = 0.0
+
         medium = dr.select(active, medium, dr.zeros(mi.MediumPtr))
         medium[(active_surface & si.is_medium_transition())] = si.target_medium(ds.d)
 
@@ -398,11 +400,12 @@ class PRBVolpathIntegrator(RBIntegrator):
         max_dist = mi.Float(ray.maxt)
         total_dist = mi.Float(0.0)
         si = dr.zeros(mi.SurfaceInteraction3f)
+        mei = dr.zeros(mi.MediumInteraction3f)
         needs_intersection = mi.Bool(True)
         transmittance = mi.Spectrum(1.0)
         loop = mi.Loop(name=f"PRB Next Event Estimation ({mode.name})",
                        state=lambda: (sampler, active, medium, ray, total_dist,
-                                      needs_intersection, si, transmittance))
+                                      needs_intersection, si, mei, transmittance))
         while loop(active):
             remaining_dist = max_dist - total_dist
             ray.maxt = dr.detach(remaining_dist)
@@ -417,7 +420,7 @@ class PRBVolpathIntegrator(RBIntegrator):
             active_surface = active & ~active_medium
 
             # Handle medium interactions / transmittance
-            mei = medium.sample_interaction(ray, sampler.next_1d(active_medium), channel, active_medium)
+            mei[active_medium] = medium.sample_interaction(ray, sampler.next_1d(active_medium), channel, active_medium)
             mei.t[active_medium & (si.t < mei.t)] = dr.inf
             mei.t = dr.detach(mei.t)
 
@@ -425,18 +428,24 @@ class PRBVolpathIntegrator(RBIntegrator):
 
             # Special case for homogeneous media: directly advance to the next surface / end of the segment
             if self.nee_handle_homogeneous:
-                active_homogeneous = active_medium & medium.is_homogeneous()
+                active_homogeneous = active_medium & medium.is_homogeneous() & ~medium.is_emitter()
                 mei.t[active_homogeneous] = dr.minimum(remaining_dist, si.t)
                 tr_multiplier[active_homogeneous] = medium.transmittance_eval_pdf(mei, si, active_homogeneous)[0]
                 mei.t[active_homogeneous] = dr.inf
 
-            escaped_medium = active_medium & ~mei.is_valid()
+            medium_em = mei.emitter(active_medium)
+            escaped_medium = active_medium & ~mei.is_valid() & dr.neq(medium_em, ds.emitter)
 
             # Ratio tracking transmittance computation
             active_medium &= mei.is_valid()
+            mei[escaped_medium] = dr.zeros(mi.MediumInteraction3f)
+            tr_multiplier[active_medium] *= mei.sigma_n / mei.combined_extinction
+
+            is_sampled_medium = active_medium & dr.eq(medium_em, ds.emitter)
+            radiance = medium.get_radiance(mei, active_medium)
+
             ray.o[active_medium] = dr.detach(mei.p)
             si.t[active_medium] = dr.detach(si.t - mei.t)
-            tr_multiplier[active_medium] *= mei.sigma_n / mei.combined_extinction
 
             # Handle interactions with surfaces
             active_surface |= escaped_medium
@@ -450,6 +459,7 @@ class PRBVolpathIntegrator(RBIntegrator):
                 dr.backward(tr_multiplier * dr.detach(dr.select(active_adj, δL * adj_emitted / tr_multiplier, 0.0)))
 
             transmittance *= dr.detach(tr_multiplier)
+            emitter_val[is_sampled_medium] += transmittance * radiance
 
             # Update the ray with new origin & t parameter
             ray[active_surface] = dr.detach(si.spawn_ray(mi.Vector3f(ray.d)))
@@ -464,7 +474,9 @@ class PRBVolpathIntegrator(RBIntegrator):
             has_medium_trans = active_surface & si.is_medium_transition()
             medium[has_medium_trans] = si.target_medium(ray.d)
 
-        return emitter_val * transmittance, ds
+        emitter_val[~is_medium_emitter] *= transmittance
+        emitter_val[is_medium_emitter] *= dr.detach(dr.rcp(ds.pdf))
+        return emitter_val, ds
 
     def to_string(self):
         return f'PRBVolpathIntegrator[max_depth = {self.max_depth}]'
