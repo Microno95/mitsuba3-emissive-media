@@ -129,7 +129,7 @@ public:
 
     virtual std::pair<Ray3f, Spectrum>
     sample_ray(Float time, Float wavelength_sample,
-               const Point2f &position_sample, const Point2f &aperture_sample,
+               const Point3f &position_sample, const Point2f &aperture_sample,
                Mask active = true) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::EndpointSampleRay, active);
 
@@ -140,7 +140,7 @@ public:
         SensorPtr sensor = dr::gather<SensorPtr>(m_sensors_dr, index, active);
 
 
-        Point2f position_sample_2(idx_f - Float(idx_u), position_sample.y());
+        Point3f position_sample_2(idx_f - Float(idx_u), position_sample.y(), position_sample.z());
 
         auto [ray, spec] =
             sensor->sample_ray(time, wavelength_sample, position_sample_2,
@@ -170,7 +170,7 @@ public:
         UInt32 index = dr::minimum(idx_u, (uint32_t) (m_sensors.size() - 1));
         SensorPtr sensor = dr::gather<SensorPtr>(m_sensors_dr, index, active);
 
-        Point2f position_sample_2(idx_f - Float(idx_u), position_sample.y());
+        Point3f position_sample_2(idx_f - Float(idx_u), position_sample.y(), position_sample.z());
 
         auto [ray, spec] = sensor->sample_ray_differential(
             time, wavelength_sample, position_sample_2, aperture_sample,
