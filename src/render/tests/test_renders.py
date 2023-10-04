@@ -196,7 +196,7 @@ def test_render(variant, scene_fname, integrator_type, jit_flags_key):
     if os.name == 'nt' and 'test_various_emitters' in ref_fname and 'cuda' in variant:
         pytest.skip('Skipping flaky test (likely an OptiX miscompilation) on Windows')
 
-    if 'emissive' in split(ref_fname)[-1] and integrator_type in ['volpathmis', 'prbvolpath']:
+    if 'emissive' in split(ref_fname)[-1] and integrator_type in ['volpathmis']:
         pytest.skip(f'Skipping emissive media tests for {integrator_type} that does not have emitter medium sampling implemented.')
 
     ref_bmp = read_rgb_bmp_to_xyz(ref_fname)
