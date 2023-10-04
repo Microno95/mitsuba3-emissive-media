@@ -80,7 +80,8 @@ MI_VARIANT Shape<Float, Spectrum>::Shape(const Properties &props) : m_id(props.i
             props2.set_object("albedo", PluginManager::instance()->create_object<Volume>(props_albedo));
             m_interior_medium = PluginManager::instance()->create_object<Medium>(props2);
         }
-        m_interior_medium->set_emitter(m_emitter);
+        if (m_interior_medium->emitter() != m_emitter.get())
+            m_interior_medium->set_emitter(m_emitter);
     }
 
     m_silhouette_sampling_weight = props.get<ScalarFloat>("silhouette_sampling_weight", 1.0f);
