@@ -362,7 +362,7 @@ public:
         auto ray = Ray3f(
             it.p,
             ds.d,
-            (1.0f + math::ShadowEpsilon<Float>)*(2.0f*m_radius.value() + ds.dist),
+            (1.0f + math::ShadowEpsilon<Float>)*(3.0f*m_radius.value() + ds.dist),
             it.time,
             it.wavelengths
         );
@@ -386,7 +386,7 @@ public:
 
         Vector3f plane_p = ray(plane_t);
 
-        // Intersection with plane outside of the sphere
+        // Intersection with plane outside the sphere
         no_hit &= (norm(plane_p - center) > radius);
 
         Vector3f o = plane_p - center;
@@ -406,6 +406,7 @@ public:
         active &= solution_found && !no_hit && !out_bounds;
 
         near_t = dr::clamp(near_t, 0.0f, dr::Infinity<Float>);
+        far_t  = dr::clamp(far_t, 0.0f, dr::Infinity<Float>);
 
         dr::masked(near_t, !active) = 0.0f;
         dr::masked(far_t, !active) = 0.0f;
