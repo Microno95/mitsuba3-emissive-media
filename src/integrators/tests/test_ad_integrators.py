@@ -1050,8 +1050,8 @@ INDIRECT_ILLUMINATION_CONFIGS_LIST = [
 INTEGRATORS = [
     ('path', False, False),
     ('prb', False, False),
-    ('volpath', True, False),
-    ('volpathmis', True, False),
+    # ('volpath', True, False),
+    # ('volpathmis', True, False),
     ('prbvolpath', True, False),
     ('direct_projective', False, True),
     ('prb_projective', False, True)
