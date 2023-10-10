@@ -381,7 +381,7 @@ public:
            i.e. Avoid call to m_texture.tensor() that triggers migration.
            For CUDA-variants, ideally want to solely keep data as CUDA texture
         */
-        rebuild_internals(tensor, true, false);
+        rebuild_internals(tensor, true, true, false);
     }
 
     void traverse(TraversalCallback *callback) override {
@@ -404,7 +404,7 @@ public:
                       to_string());
 
             m_texture.set_tensor(m_texture.tensor());
-            rebuild_internals(m_texture.tensor(), true, m_distr2d != nullptr);
+            rebuild_internals(m_texture.tensor(), true, true, m_distr2d != nullptr);
         }
     }
 
@@ -677,6 +677,8 @@ public:
 
     Float mean() const override { return m_mean; }
 
+    ScalarFloat max() const override { return m_max; }
+
     bool is_spatially_varying() const override { return true; }
 
     std::string to_string() const override {
@@ -686,6 +688,7 @@ public:
             << "  resolution = \"" << resolution() << "\"," << std::endl
             << "  raw = " << (int) m_raw << "," << std::endl
             << "  mean = " << m_mean << "," << std::endl
+            << "  max = " << m_max << "," << std::endl
             << "  transform = " << string::indent(m_transform) << std::endl
             << "]";
         return oss.str();
@@ -792,7 +795,7 @@ protected:
      * \brief Recompute mean and 2D sampling distribution (if requested)
      * following an update
      */
-    void rebuild_internals(const StoredTensorXf& tensor, bool init_mean, bool init_distr) {
+    void rebuild_internals(const StoredTensorXf& tensor, bool init_mean, bool init_max, bool init_distr) {
         if (m_transform != ScalarTransform3f())
             dr::make_opaque(m_transform);
 
@@ -844,6 +847,10 @@ protected:
             m_mean = dr::mean(values);
         }
 
+        if (init_max) {
+            m_max = dr::max(values);
+        }
+
         if (init_distr) {
             auto&& data = dr::migrate(values, AllocType::Host);
 
@@ -867,7 +874,7 @@ protected:
         if (!m_distr2d) {
             dr::scoped_symbolic_independence<Float> guard{};
             auto self = const_cast<BitmapTextureImpl *>(this);
-            self->rebuild_internals(m_texture.tensor(), false, true);
+            self->rebuild_internals(m_texture.tensor(), false, false, true);
         }
     }
 
