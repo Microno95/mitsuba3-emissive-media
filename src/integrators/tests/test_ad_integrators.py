@@ -289,6 +289,22 @@ class MediumConstantEmitterAlbedoConfig(MediumConstantEmitterConfigBase):
         super().__init__()
         self.key = 'sphere.interior_medium.albedo.value.value'
 
+# Phase of a spherical medium illuminated by a constant environment emitter
+class MediumConstantEmitterPhaseConfig(MediumConstantEmitterConfigBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self.key = 'sphere.interior_medium.phase_function.g'
+        self.scene_dict['sphere'].update({
+            'to_world': T.rotate((0, 0, 1), 180),
+        })
+        self.scene_dict['sphere']['interior'].update({
+            'phase': {
+                'type': 'hg',
+                'g': 0.8
+            }
+        })
+
+
 class VolumeLightConfigBase(ConfigBase):
     def __init__(self) -> None:
         super().__init__()
@@ -381,6 +397,40 @@ class VolumeLightIllumRectMediumSigmaTConfig(VolumeLightIllumRectVolumeConfigBas
 class VolumeLightIllumRectMediumAlbedoConfig(VolumeLightIllumRectVolumeConfigBase):
     def __init__(self) -> None:
         super().__init__()
+        self.key = 'sphere.interior_medium.albedo.value.value'
+        self.ref_fd_epsilon = 8e-2
+
+# Optical density of a spherical volume illuminated by a spherical area emitter illuminating a gray rectangle
+class AreaLightIllumRectMediumSigmaTConfig(VolumeLightIllumRectVolumeConfigBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self.scene_dict.update({
+            'light': {
+                'type': 'sphere',
+                'to_world': T.translate(mi.scalar_rgb.Point3f(-2.0, 0, 0)).scale(0.5),
+                'emitter': {
+                    'type': 'area',
+                    'radiance': {'type': 'rgb', 'value': [1.0, 1.0, 1.0]}
+                }
+            }
+        })
+        self.key = 'sphere.interior_medium.albedo.value.value'
+        self.ref_fd_epsilon = 8e-2
+
+# Albedo of a spherical volume illuminated by a spherical area emitter illuminating a gray rectangle
+class AreaLightIllumRectMediumAlbedoConfig(VolumeLightIllumRectVolumeConfigBase):
+    def __init__(self) -> None:
+        super().__init__()
+        self.scene_dict.update({
+            'light': {
+                'type': 'sphere',
+                'to_world': T.translate(mi.scalar_rgb.Point3f(-2.0, 0, 0)).scale(0.5),
+                'emitter': {
+                    'type': 'area',
+                    'radiance': {'type': 'rgb', 'value': [1.0, 1.0, 1.0]}
+                }
+            }
+        })
         self.key = 'sphere.interior_medium.albedo.value.value'
         self.ref_fd_epsilon = 8e-2
 
@@ -963,6 +1013,7 @@ VOLUME_CONFIGS_LIST = [
     # Media illuminated by constant environment emitter tests
     MediumConstantEmitterSigmaTConfig,
     MediumConstantEmitterAlbedoConfig,
+    MediumConstantEmitterPhaseConfig,
     # Basic volume emitter tests
     VolumeLightRadianceConfig,
     VolumeLightHeterogeneousRadianceConfig,
@@ -979,7 +1030,9 @@ VOLUME_CONFIGS_LIST = [
     VolumeLightBunnyRadianceGrayRectOffscreenConfig,
     # Volume emitter tests involving a spherical medium illuminated by a spherical medium
     VolumeLightIllumRectMediumSigmaTConfig,
-    VolumeLightIllumRectMediumAlbedoConfig
+    VolumeLightIllumRectMediumAlbedoConfig,
+    AreaLightIllumRectMediumSigmaTConfig,
+    AreaLightIllumRectMediumAlbedoConfig
 ]
 
 DISCONTINUOUS_CONFIGS_LIST = [

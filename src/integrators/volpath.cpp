@@ -176,7 +176,8 @@ public:
                                        escaped_medium, result, si, mei, medium, needs_intersection,
                                        last_scatter_direction_pdf, last_scatter_event, valid_ray,
                                        specular_chain);
-            loop_medium.set_max_iterations(this->m_max_depth);
+            if (this->m_max_depth > 0)
+                loop_medium.set_max_iterations(this->m_max_depth);
             while (loop_medium(active_medium)) {
                 // If the medium does not have a spectrally varying extinction,
                 // we can perform a few optimizations to speed up rendering

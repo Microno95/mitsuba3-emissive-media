@@ -143,7 +143,8 @@ class PRBVolpathIntegrator(RBIntegrator):
                                       throughput, L, δL, needs_intersection,
                                       last_scatter_event, specular_chain, η,
                                       last_scatter_direction_pdf, valid_ray))
-        loop.set_max_iterations(self.max_depth)
+        if self.max_depth > 0:
+            loop.set_max_iterations(self.max_depth)
         while loop(active):
             active &= dr.any(dr.neq(throughput, 0.0))
 
