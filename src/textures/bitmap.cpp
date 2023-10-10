@@ -195,19 +195,23 @@ public:
                 if constexpr (dr::is_dynamic_v<Float>)
                     m_mean = dr::sum(luminance(dr::unravel<Color3f>(tensor->array()))) / pixel_count;
                 else {
-                    const size_t pixel_count = tensor->shape(0) * tensor->shape(1);
-                    double mean = 0.0;
+                    double mean = 0.0, max = 0.0;
                     ScalarFloat* ptr = tensor->data();
                     for (size_t i = 0; i < pixel_count; ++i) {
                         ScalarColor3f value = dr::load<ScalarColor3f>(ptr);
+                        auto tmp = std::max((double) value[0], std::max((double) value[1], (double) value[2]));
                         mean += (double) luminance(value);
+                        max = tmp > max ? tmp : max;
                         ptr += 3;
                     }
                     m_mean = (ScalarFloat)(mean / pixel_count);
+                    m_max = (ScalarFloat)(max);
                 }
             }
-            else
+            else {
                 m_mean = dr::sum(tensor->array()) / pixel_count;
+                m_max = (ScalarFloat) dr::max_nested(tensor->array());
+            }
 
         } else {
             /* Convert to linear RGB float bitmap, will be converted
@@ -256,7 +260,7 @@ public:
             size_t pixel_count = bitmap->pixel_count();
             bool exceed_unit_range = false;
 
-            double mean = 0.0;
+            double mean = 0.0, max = 0.0;
             if (bitmap->channel_count() == 3) {
                 if (is_spectral_v<Spectrum> && !m_raw) {
                     for (size_t i = 0; i < pixel_count; ++i) {
@@ -264,7 +268,9 @@ public:
                         if (!all(value >= 0 && value <= 1))
                             exceed_unit_range = true;
                         value = srgb_model_fetch(value);
+                        auto tmp = std::max((double) value[0], std::max((double) value[1], (double) value[2]));
                         mean += (double) srgb_model_mean(value);
+                        max = tmp > max ? tmp : max;
                         dr::store(ptr, value);
                         ptr += 3;
                     }
@@ -273,7 +279,9 @@ public:
                         ScalarColor3f value = dr::load<ScalarColor3f>(ptr);
                         if (!all(value >= 0 && value <= 1))
                             exceed_unit_range = true;
+                        auto tmp = std::max((double) value[0], std::max((double) value[1], (double) value[2]));
                         mean += (double) luminance(value);
+                        max = tmp > max ? tmp : max;
                         ptr += 3;
                     }
                 }
@@ -282,7 +290,9 @@ public:
                     ScalarFloat value = ptr[i];
                     if (!(value >= 0 && value <= 1))
                         exceed_unit_range = true;
-                    mean += (double) value;
+                    auto tmp = (double) value;
+                    mean += tmp;
+                    max = tmp > max ? tmp : max;
                 }
             } else {
                 Throw("Unsupported channel count: %d (expected 1 or 3)",
@@ -296,6 +306,7 @@ public:
                     m_name);
 
             m_mean = Float(mean / pixel_count);
+            m_max = ScalarFloat(max);
 
             size_t channels = bitmap->channel_count();
             ScalarVector2i res = ScalarVector2i(bitmap->size());
@@ -325,7 +336,7 @@ public:
                       to_string());
 
             m_texture.set_tensor(m_texture.tensor());
-            rebuild_internals(true, m_distr2d != nullptr);
+            rebuild_internals(true, true, m_distr2d != nullptr);
         }
     }
 
@@ -598,6 +609,8 @@ public:
 
     Float mean() const override { return m_mean; }
 
+    ScalarFloat max() const override { return m_max; }
+
     bool is_spatially_varying() const override { return true; }
 
     std::string to_string() const override {
@@ -607,6 +620,7 @@ public:
             << "  resolution = \"" << resolution() << "\"," << std::endl
             << "  raw = " << (int) m_raw << "," << std::endl
             << "  mean = " << m_mean << "," << std::endl
+            << "  max = " << m_max << "," << std::endl
             << "  transform = " << string::indent(m_transform) << std::endl
             << "]";
         return oss.str();
@@ -713,7 +727,7 @@ protected:
      * \brief Recompute mean and 2D sampling distribution (if requested)
      * following an update
      */
-    void rebuild_internals(bool init_mean, bool init_distr) {
+    void rebuild_internals(bool init_mean, bool init_max, bool init_distr) {
         auto&& data = dr::migrate(m_texture.value(), AllocType::Host);
 
         if constexpr (dr::is_jit_v<Float>)
@@ -724,7 +738,7 @@ protected:
 
         const ScalarFloat *ptr = data.data();
 
-        double mean = 0.0;
+        double mean = 0.0, max = 0.0;
         size_t pixel_count = (size_t) dr::prod(resolution());
         bool exceed_unit_range = false;
 
@@ -745,7 +759,9 @@ protected:
                 }
                 if (init_distr)
                     importance_map[i] = tmp;
+                auto tmp2 = std::max((double) value[0], std::max((double) value[1], (double) value[2]));
                 mean += (double) tmp;
+                max = tmp2 > max ? tmp2 : max;
                 ptr += 3;
             }
 
@@ -757,7 +773,9 @@ protected:
                 ScalarFloat value = ptr[i];
                 if (!(value >= 0 && value <= 1))
                     exceed_unit_range = true;
-                mean += (double) value;
+                auto tmp = (double) value;
+                mean += tmp;
+                max = tmp > max ? tmp : max;
             }
 
             if (init_distr)
@@ -767,6 +785,9 @@ protected:
 
         if (init_mean)
             m_mean = dr::opaque<Float>(ScalarFloat(mean / pixel_count));
+
+        if (init_max)
+            m_max = dr::opaque<ScalarFloat>(max);
 
         if (exceed_unit_range && !m_raw)
             Log(Warn,
@@ -780,7 +801,7 @@ protected:
         std::lock_guard<std::mutex> lock(m_mutex);
         if (!m_distr2d) {
             auto self = const_cast<BitmapTexture *>(this);
-            self->rebuild_internals(false, true);
+            self->rebuild_internals(false, false, true);
         }
     }
 
@@ -790,6 +811,7 @@ protected:
     bool m_accel;
     bool m_raw;
     Float m_mean;
+    ScalarFloat m_max;
     std::string m_name;
 
     // Optional: distribution for importance sampling
