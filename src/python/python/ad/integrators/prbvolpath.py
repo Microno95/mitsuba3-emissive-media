@@ -126,7 +126,8 @@ class PRBVolpathIntegrator(RBIntegrator):
         last_scatter_event = dr.zeros(mi.Interaction3f)
         last_scatter_direction_pdf = mi.Float(1.0)
 
-        medium = dr.select(dr.neq(initial_medium, None), initial_medium, dr.zeros(mi.MediumPtr))
+        initial_medium_ptr = initial_medium if (isinstance(initial_medium, mi.MediumPtr) or initial_medium is None) else mi.MediumPtr(initial_medium)
+        medium = dr.select(dr.neq(initial_medium, None), initial_medium_ptr, dr.zeros(mi.MediumPtr))
 
         channel = 0
         depth = mi.UInt32(0)
@@ -143,8 +144,6 @@ class PRBVolpathIntegrator(RBIntegrator):
                                       throughput, L, δL, needs_intersection,
                                       last_scatter_event, specular_chain, η,
                                       last_scatter_direction_pdf, valid_ray))
-        if self.max_depth > 0:
-            loop.set_max_iterations(self.max_depth)
         while loop(active):
             active &= dr.any(dr.neq(throughput, 0.0))
 
@@ -450,12 +449,11 @@ class PRBVolpathIntegrator(RBIntegrator):
                 tr_multiplier[active_homogeneous] = medium.transmittance_eval_pdf(mei, si, active_homogeneous)[0]
                 mei.t[active_homogeneous] = dr.inf
 
-            escaped_medium = active_medium & ~mei.is_valid() & (dr.neq(medium_em, sampled_medium_emitter) | ~is_medium_emitter)
-
-            # Ratio tracking transmittance computation
+            escaped_medium = active_medium & ~mei.is_valid()
             active_medium &= mei.is_valid()
             mei[escaped_medium] = dr.zeros(mi.MediumInteraction3f)
 
+            # Radiance contribution from medium
             active_heterogeneous = active_medium & ~active_homogeneous
             t_hetero = dr.minimum(remaining_dist, dr.minimum(mei.t, si.t)) - mei.mint
             tr_hetero = dr.exp(-t_hetero * mei.combined_extinction)
@@ -473,6 +471,7 @@ class PRBVolpathIntegrator(RBIntegrator):
             contrib_medium = tr_multiplier * contrib_weight * transmittance * radiance * dr.detach(dr.select(ds.pdf > 0.0, dr.rcp(ds.pdf), 0.0))
             medium_contribution[is_sampled_medium] += dr.detach(contrib_medium)
 
+            # Ratio tracking transmittance computation
             ray.o[active_medium] = dr.detach(mei.p)
             si.t[active_medium] = dr.detach(si.t - mei.t)
             tr_multiplier[active_medium] *= mei.sigma_n / mei.combined_extinction
