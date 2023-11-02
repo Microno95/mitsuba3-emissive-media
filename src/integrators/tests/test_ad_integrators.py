@@ -514,7 +514,7 @@ class VolumeLightBunnyRadianceGrayRectConfig(VolumeLightGrayRectConfigBase):
             'type': 'ply',
             'filename': 'resources/data/common/meshes/bunny_watertight.ply',
         })
-        self.spp = 1024
+        self.spp = 2048
         self.error_mean_threshold = 0.1
 
 # Intensity of a spherical volume emitter illuminating a gray rectangle from offscreen
