@@ -337,7 +337,6 @@ def test10_si_singularity_centered(variants_all_rgb):
     assert dr.allclose(si.sh_frame.n, [0, 0, 1])
 
 
-def test11_sample_position_volume(variants_vec_backends_once):
 def test11_sample_silhouette_wrong_type(variants_all_rgb):
     sphere = mi.load_dict({ 'type': 'sphere' })
     ss = sphere.sample_silhouette([0.1, 0.2, 0.3],

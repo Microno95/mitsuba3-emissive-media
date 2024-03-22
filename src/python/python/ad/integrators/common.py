@@ -1149,7 +1149,7 @@ class PSIntegrator(ADIntegrator):
         with dr.suspend_grad():
             it = dr.zeros(mi.Interaction3f)
             it.p = ss.p
-            sensor_ds, _ = sensor.sample_direction(it, mi.Point2f(0))
+            sensor_ds, _ = sensor.sample_direction(it, mi.Point3f(0))
 
         # Particle tracer style imageblock to accumulate primarily visible derivatives
         block = film.create_block(normalize=True)

@@ -276,7 +276,6 @@ def test07_differentiable_surface_interaction_ray_forward(variants_all_ad_rgb):
     assert dr.allclose(dr.grad(si.uv), [-0.25, 0.0])
 
 
-def test08_sample_position_volume(variants_vec_backends_once):
 def test08_sample_silhouette_perimeter(variants_vec_rgb):
     cylinder = mi.load_dict({ 'type': 'cylinder' })
     cylinder_ptr = mi.ShapePtr(cylinder)
@@ -459,6 +458,7 @@ def test16_sample_precomputed_silhouette(variants_vec_rgb):
 def test17_shape_type(variant_scalar_rgb):
     cylinder = mi.load_dict({ 'type': 'cylinder' })
     assert cylinder.shape_type() == mi.ShapeType.Cylinder.value;
+
 
 def test18_sample_position_volume(variants_vec_backends_once):
     cylinder = mi.load_dict({ 'type': 'cylinder' })

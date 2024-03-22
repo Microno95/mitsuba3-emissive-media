@@ -208,7 +208,7 @@ public:
             }
         } else {
             // Randomly sample a valid connection to a sensor
-            Point2f sample_(sample);
+            Point3f sample_(sample);
             UInt32 valid_count(0u);
 
             for (size_t i = 0; i < m_sensors.size(); ++i) {

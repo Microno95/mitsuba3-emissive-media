@@ -211,6 +211,7 @@ public:
     Float pdf_position_surface(const PositionSample3f &ps, Mask active = true) const override;
 
     DirectionSample3f sample_direction_volume(const Interaction3f &it, const Point3f &sample,
+                                                      Mask active = true) const override;
 
     std::pair<std::pair<Float, Float>, Float> get_intersection_extents(const Interaction3f &it,
                                                                        const DirectionSample3f &ds,

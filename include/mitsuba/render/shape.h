@@ -283,7 +283,7 @@ public:
      *     A \ref PositionSample instance describing the generated sample
      */
     virtual PositionSample3f sample_position_volume(Float time, const Point3f &sample,
-                                                Mask active = true) const;
+                                                    Mask active = true) const;
 
     /**
      * \brief Query the probability density of \ref sample_position_volume() for

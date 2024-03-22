@@ -449,19 +449,19 @@ MI_VARIANT void Mesh<Float, Spectrum>::build_pmf() {
 
         std::vector<ScalarFloat> table(m_face_count);
         auto bbox_center = m_bbox.center();
-    ScalarFloat volume = 0.f;
+        ScalarFloat volume = 0.f;
 
-    for (ScalarIndex i = 0; i < m_face_count; i++) {
-        ScalarPoint3u idx = dr::load<ScalarPoint3u>(idx_p + 3 * i);
+        for (ScalarIndex i = 0; i < m_face_count; i++) {
+            ScalarPoint3u idx = dr::load<ScalarPoint3u>(idx_p + 3 * i);
 
-            ScalarPoint3f p0 = dr::load<InputPoint3f>(pos_p + 3 * idx.x()),
-                          p1 = dr::load<InputPoint3f>(pos_p + 3 * idx.y()),
-                          p2 = dr::load<InputPoint3f>(pos_p + 3 * idx.z());
+                ScalarPoint3f p0 = dr::load<InputPoint3f>(pos_p + 3 * idx.x()),
+                              p1 = dr::load<InputPoint3f>(pos_p + 3 * idx.y()),
+                              p2 = dr::load<InputPoint3f>(pos_p + 3 * idx.z());
 
-        table[i] = .5f * dr::norm(dr::cross(p1 - p0, p2 - p0));
-        volume = volume + dr::dot(p0 - bbox_center, dr::cross(p1 - bbox_center, p2 - bbox_center)) / 6.0f;
-    }
-    m_inv_volume = dr::rcp(dr::abs(volume));
+            table[i] = .5f * dr::norm(dr::cross(p1 - p0, p2 - p0));
+            volume = volume + dr::dot(p0 - bbox_center, dr::cross(p1 - bbox_center, p2 - bbox_center)) / 6.0f;
+        }
+        m_inv_volume = dr::rcp(dr::abs(volume));
 
         m_area_pmf = DiscreteDistribution<Float>(table.data(), m_face_count);
     } else {
@@ -470,6 +470,8 @@ MI_VARIANT void Mesh<Float, Spectrum>::build_pmf() {
                 p2 = vertex_position(v_idx[2]);
 
         Float face_surface_area = .5f * dr::norm(dr::cross(p1 - p0, p2 - p0));
+
+        m_inv_volume = dr::rcp(dr::abs(dr::sum_nested(dr::dot(p0, dr::cross(p1, p2)) / 6.0f)));
 
         m_area_pmf = DiscreteDistribution<Float>(dr::detach(face_surface_area));
     }
@@ -1104,7 +1106,7 @@ MI_VARIANT Float Mesh<Float, Spectrum>::pdf_position_volume(const PositionSample
     auto loop_name = "Mesh[" + std::string(m_name) + "] - PDF Position Volume";
 
     dr::Loop<Mask> loop(loop_name.c_str(), si, pi,
-                        active, ray, num_intersections, *this);
+                        active, ray, num_intersections);
     loop.set_max_iterations(m_face_count);
     while (loop(active)) {
         pi = m_volume_parameterization->ray_intersect_preliminary(
@@ -1119,7 +1121,8 @@ MI_VARIANT Float Mesh<Float, Spectrum>::pdf_position_volume(const PositionSample
         dr::masked(ray.maxt, active) = maxt;
     }
 
-    return dr::select(!delta && ((num_intersections % 2) == 1u), m_inv_volume, 0.f);
+    auto is_inside = (num_intersections % 2) == 1u;
+    return dr::select(is_inside, m_inv_volume, dr::zeros<Float>());
 }
 
 MI_VARIANT Float Mesh<Float, Spectrum>::pdf_direction_volume(const Interaction3f &it, const DirectionSample3f &ds,

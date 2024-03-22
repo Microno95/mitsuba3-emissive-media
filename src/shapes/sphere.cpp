@@ -491,7 +491,7 @@ public:
 
         /// Sample a point on the shape surface
         SilhouetteSample3f ss(
-            sample_position(0.f, dr::tail<2>(sample), active));
+            sample_position_surface(0.f, dr::tail<2>(sample), active));
 
         /// Sample a tangential direction at the point
         ss.d = warp::interval_to_tangent_direction(ss.n, sample.x());

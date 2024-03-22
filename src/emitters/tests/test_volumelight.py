@@ -80,6 +80,8 @@ def test02_eval(variants_vec_spectral, spectrum_key):
 @pytest.mark.parametrize("spectrum_key", spectrum_dicts.keys())
 def test03_sample_ray(variants_vec_spectral, spectrum_key):
     # Check the correctness of the sample_ray() method
+
+
     shape, spectrum = create_emitter_and_spectrum(spectrum_key)
     emitter = shape.emitter()
 
