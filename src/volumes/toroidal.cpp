@@ -54,6 +54,7 @@ public:
 
     void traverse(TraversalCallback *callback) override {
         callback->put_object("cross_section", m_cross_section_texture.get(), +ParamFlags::Differentiable);
+        callback->put_parameter("to_local", m_to_local, +ParamFlags::Differentiable);
         Base::traverse(callback);
     }
 
@@ -62,6 +63,7 @@ public:
         oss << "ToroidalGridVolume[" << std::endl
             << "  cross_section = " << m_cross_section_texture << "," << std::endl
             << "  bbox = " << string::indent(m_bbox) << "," << std::endl
+            << "  to_local = " << string::indent(m_to_local) << "," << std::endl
             << "]";
         return oss.str();
     }
