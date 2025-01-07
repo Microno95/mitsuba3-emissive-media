@@ -16,37 +16,6 @@
 
 NAMESPACE_BEGIN(mitsuba)
 
-NAMESPACE_BEGIN(detail)
-
-template<typename T>
-MI_INLINE T phiz1(const T& z) {
-    return dr::select(
-        dr::abs(z) < 1e-4f,
-        dr::horner(z, 1.0, 0.5, 1.0/6.0, 1.0/24.0, 1.0/120.0, 1.0/720.0, 1.0/5040.0, 1.0/40320.0, 1.0/362880.0),
-        (dr::exp(z) - 1.0f)/z
-    );
-}
-
-template<typename T>
-MI_INLINE T phiz2(const T& z) {
-    return dr::select(
-        dr::abs(z) < 1e-4f,
-        dr::horner(z, 0.5, 1.0/6.0, 1.0/24.0, 1.0/120.0, 1.0/720.0, 1.0/5040.0, 1.0/40320.0, 1.0/362880.0),
-        (phiz1(z) - 1.0f)/z
-    );
-}
-
-template<typename T>
-MI_INLINE T phiz3(const T& z) {
-    return dr::select(
-        dr::abs(z) < 1e-4f,
-        dr::horner(z, 1.0/6.0, 1.0/24.0, 1.0/120.0, 1.0/720.0, 1.0/5040.0, 1.0/40320.0, 1.0/362880.0),
-        (phiz2(z) - 0.5f)/z
-    );
-}
-
-NAMESPACE_END(detail)
-
 /**!
 
 .. _integrator-volpath-raymarching:
@@ -142,8 +111,8 @@ public:
             m_relative_tolerance = m_absolute_tolerance;
         }
         else {
-            m_absolute_tolerance = props.get<ScalarFloat>("absolute_tolerance", 10.0f * dr::Epsilon<Float>);
-            m_relative_tolerance = props.get<ScalarFloat>("relative_tolerance", 10.0f * dr::Epsilon<Float>);
+            m_absolute_tolerance = props.get<ScalarFloat>("absolute_tolerance", dr::sqrt(dr::Epsilon<Float>));
+            m_relative_tolerance = props.get<ScalarFloat>("relative_tolerance", dr::sqrt(dr::Epsilon<Float>));
         }
         m_jitter_steps = props.get<bool>("use_step_jitter", true);
         dr::make_opaque(m_absolute_tolerance, m_relative_tolerance);
@@ -153,8 +122,8 @@ public:
     Float index_spectrum(const UnpolarizedSpectrum &spec, const UInt32 &idx) const {
         Float m = spec[0];
         if constexpr (is_rgb_v<Spectrum>) { // Handle RGB rendering
-            dr::masked(m, dr::eq(idx, 1u)) = spec[1];
-            dr::masked(m, dr::eq(idx, 2u)) = spec[2];
+            dr::masked(m, (idx == 1u)) = spec[1];
+            dr::masked(m, (idx == 2u)) = spec[2];
         } else {
             DRJIT_MARK_USED(idx);
         }
@@ -191,18 +160,16 @@ public:
         std::tie(mei.sigma_s, mei.sigma_n, mei.sigma_t) =
             medium->get_scattering_coefficients(mei, valid_mi);
         mei.combined_extinction = medium->get_majorant(mei, active);
+        mei.radiance = medium->get_radiance(mei, active);
         return mei;
     }
 
 
-    using rk_df_type = std::function<Spectrum(const Spectrum&, const Float&, const Mask&)>;
-    using rosen_df_type = std::function<std::tuple<Spectrum, Spectrum>(const Spectrum&, const Float&, const Mask&)>;
+    using rk_df_type = std::function<Spectrum(MediumInteraction3f&, Ray3f&, const Spectrum&, const Float&, const Mask&)>;
 
     std::tuple<Spectrum, Float, Float>
-    integration_step_rk(const rk_df_type& df, Ray3f &ray, MediumInteraction3f& mei, const Spectrum& initial_value, const Float& dt, Mask active, const bool no_refine_step, const bool ignore_est_every_substep) const {
+    integration_step_rk(rk_df_type& df, Ray3f &ray, MediumInteraction3f& mei, Spectrum& initial_value, Float& dt, Mask active, const bool no_refine_step, const bool ignore_est_every_substep) const {
         MI_MASKED_FUNCTION(ProfilerPhase::MediumSample, active)
-        Spectrum rk_est(0.f);
-        Float curr_dt(dt), next_dt(dt), max_initial_scale = dr::max(unpolarized_spectrum(dr::abs(initial_value)));
         // --------------------- RK45CK -------------------------- //
         // In order to accelerate the numerical integration via marching, we can use an adaptive stepping algorithm
         // We utilise the embedded Runge-Kutta 4(5) method with Cash-Karp coefficients
@@ -211,14 +178,47 @@ public:
         // Since the ODE is linear and the right hand side is independent of the dependent variable (optical_depth)
         // We can simply accumulate the results of each segment as we step through them
 
-        UInt32 niter = 0;
-        dr::Loop<Mask> loop_rk_step("VolpathMarch[rk single step]",
-                                    /* loop state: */ active, ray, mei,
-                                    mei.medium, rk_est, curr_dt, next_dt,
-                                    max_initial_scale, niter);
-        loop_rk_step.set_max_iterations(8);
-        while (loop_rk_step(active)) {
+        struct LoopStateRK {
+            MediumInteraction3f mei;
+            Ray3f ray;
+            Spectrum initial_value;
+            Mask active;
+            UInt32 niter;
+            Spectrum rk_est;
+            Float curr_dt;
+            Float next_dt;
+            Float max_initial_scale;
+
+            DRJIT_STRUCT(LoopStateRK, mei, ray, initial_value, \
+                        active, niter, rk_est, \
+                        curr_dt, next_dt, max_initial_scale)
+        } ls_rk = {
+            mei = mei,
+            ray = ray,
+            initial_value = initial_value,
+            active = active,
+            0,
+            dr::zeros<Spectrum>(),
+            dt,
+            dt,
+            dr::max(unpolarized_spectrum(dr::abs(initial_value))),
+        };
+
+        dr::tie(ls_rk) = dr::while_loop(dr::make_tuple(ls_rk),
+            [](const LoopStateRK& ls_rk) { return ls_rk.active; },
+            [this, no_refine_step, ignore_est_every_substep, &df](LoopStateRK& ls_rk) {
+            auto& mei = ls_rk.mei;
+            auto& ray = ls_rk.ray;
+            auto& initial_value = ls_rk.initial_value;
+            auto& active = ls_rk.active;
+            auto& niter = ls_rk.niter;
+            auto& rk_est = ls_rk.rk_est;
+            auto& curr_dt = ls_rk.curr_dt;
+            auto& next_dt = ls_rk.next_dt;
+            auto& max_initial_scale = ls_rk.max_initial_scale;
+
             auto rk_err_est = dr::zeros<Spectrum>();
+
             std::array<Spectrum, rk_stages> rk_ki;
             dr::masked(rk_est, active) = dr::zeros<Spectrum>();
             for (std::size_t idx = 0; idx < rk_stages; idx++) {
@@ -227,7 +227,7 @@ public:
                     if (rk_aij[idx][jdx] != 0.0)
                         rk_ki[idx] += static_cast<ScalarFloat>(rk_aij[idx][jdx]) * rk_ki[jdx];
                 }
-                rk_ki[idx] = curr_dt * df(rk_ki[idx], static_cast<ScalarFloat>(rk_ci[idx]) * curr_dt, active);
+                rk_ki[idx] = curr_dt * df(mei, ray, rk_ki[idx], static_cast<ScalarFloat>(rk_ci[idx]) * curr_dt, active);
                 // nth order estimate of step
                 if (rk_bi[idx] != 0.0)
                     dr::masked(rk_est, active) += rk_ki[idx] * static_cast<ScalarFloat>(rk_bi[idx]);
@@ -245,7 +245,7 @@ public:
 
             Float corr = 2.0f;
             dr::masked(corr, err_estimate > 0.f && active) = 0.9f * dr::pow(error_norm, -(1.0f / rk_order));
-            dr::masked(corr, dr::eq(scale_of_err, 0.0f) && active) = 1.0f;
+            dr::masked(corr, (scale_of_err == 0.0f) && active) = 1.0f;
 
             dr::masked(next_dt, active) = dr::maximum(math::ShadowEpsilon<Float>, dr::abs(curr_dt * corr));
             next_dt = dr::copysign(next_dt, curr_dt);
@@ -254,61 +254,10 @@ public:
             ++niter;
             active &= error_norm >= 1.0f && !no_refine_step && niter < 8;
             dr::masked(curr_dt, active) = next_dt;
-        }
+        }, "VolpathMarch[rk single step]");
+
         //        Log(Debug, "Initial timestep: %s | Current timestep: %s | Next timestep: %s | Error estimate: %s | Estimate: %s | Scale: %s", initial_dt, curr_dt, next_dt, rk_diff_est, rk5_est, scale_of_err);
-        return std::make_tuple(rk_est, curr_dt, next_dt);
-    }
-
-    std::tuple<Spectrum, Float, Float>
-    integration_step_rosenbrock(const rosen_df_type& df, Ray3f &ray, MediumInteraction3f& mei, const Spectrum& initial_value, const Float& dt, Mask active, const bool no_refine_step) const {
-        MI_MASKED_FUNCTION(ProfilerPhase::MediumSample, active)
-        Spectrum rosenbrock_est(0.f);
-        Float curr_dt(dt), next_dt(dt), max_initial_scale = dr::max(unpolarized_spectrum(dr::abs(initial_value)));
-
-        UInt32 niter = 0;
-        dr::Loop<Mask> loop_rosen_step("VolpathMarch[rosenbrock single step]",
-                                       /* loop state: */ active, ray, mei,
-                                       mei.medium, rosenbrock_est, curr_dt, next_dt,
-                                       max_initial_scale, niter);
-        loop_rosen_step.set_max_iterations(8);
-        while (loop_rosen_step(active)) {
-            dr::masked(rosenbrock_est, active) = dr::zeros<Spectrum>();
-
-            auto [An0, Nt0] = df(initial_value, dr::zeros<Float>(), active);
-            auto [An1, Nt1] = df(initial_value, curr_dt * 0.5f, active);
-            auto [An2, Nt2] = df(initial_value, curr_dt, active);
-            auto Un2 = detail::phiz1(-curr_dt * An0) * (-An0 * initial_value + Nt0);
-            auto Dn2 = Nt2 - Nt0;
-            auto Un3 = 2.0f * detail::phiz3(-curr_dt * An0) * Dn2;
-
-            // Difference estimate of optical step
-            dr::masked(rosenbrock_est, active) = curr_dt * (Un2 + Un3);
-
-            // Error estimate from difference between double half-step and full-step solution
-            auto half_est = curr_dt * 0.5f * (detail::phiz1(-curr_dt * 0.5f * An0) * (-An0 * initial_value + Nt0) + 2.0f * detail::phiz3(-curr_dt * 0.5f * An0) * (Nt1 - Nt0));
-            half_est += curr_dt * 0.5f * (detail::phiz1(-curr_dt * 0.5f * An1) * (-An1 * (initial_value + half_est) + Nt1) + 2.0f * detail::phiz3(-curr_dt * 0.5f * An1) * (Nt2 - Nt1));
-            auto err_estimate = dr::max(dr::abs(dr::detach(unpolarized_spectrum(rosenbrock_est - half_est))));
-            // Always take the half-step solution as it is more accurate
-            dr::masked(rosenbrock_est, active) = half_est;
-            // Based on scipy scaling of error
-            Float scale_of_err = m_absolute_tolerance;
-            dr::masked(scale_of_err, active) += dr::maximum(max_initial_scale, dr::max(dr::detach(unpolarized_spectrum(dr::abs(rosenbrock_est))))) * m_relative_tolerance;
-            Float error_norm = dr::select(scale_of_err > 0.0f, err_estimate / scale_of_err, 0.0f);
-
-            Float corr = 2.0f;
-            dr::masked(corr, (err_estimate > 0.f) && active) = 0.8f * dr::pow(error_norm, -(1.0f / 3.0f));
-            dr::masked(corr, dr::eq(scale_of_err, 0.0f) && active) = 1.0f;
-
-            dr::masked(next_dt, active) = dr::maximum(math::RayEpsilon<Float>, dr::abs(curr_dt * corr));
-            dr::masked(next_dt, active && curr_dt < 0.f) *= -1.0f;
-            //            Log(Trace, "An0 ~ %s, An1 ~ %s, Nt0 ~ %s, Nt1 ~ %s, Phi1 ~ %s", An0, An1, Nt0, Nt1, detail::phiz1(-curr_dt * An0));
-            //            Log(Trace, "Correction factor: %s ~ Current dt: %s | Next dt: %s ~ Minimum dt: %s ~ Error: %s", corr, curr_dt, next_dt, math::RayEpsilon<Float>, euler_diff_est);
-            ++niter;
-            active &= error_norm >= 1.0f && !no_refine_step && niter < 8;
-            dr::masked(curr_dt, active) = next_dt;
-        }
-        //        Log(Trace, "Current timestep: %s | Next timestep: %s | Estimate: %s | Scale: %s", curr_dt, next_dt, rosenbrock_est);
-        return std::make_tuple(rosenbrock_est, curr_dt, next_dt);
+        return std::make_tuple(ls_rk.rk_est, ls_rk.curr_dt, ls_rk.next_dt);
     }
 
     std::pair<Spectrum, Mask> sample(const Scene *scene,
@@ -321,7 +270,7 @@ public:
 
         // If there is an environment emitter and emitters are visible: all rays will be valid
         // Otherwise, it will depend on whether a valid interaction is sampled
-        Mask valid_ray = !m_hide_emitters && dr::neq(scene->environment(), nullptr);
+        Mask valid_ray = !m_hide_emitters && (scene->environment() != nullptr);
 
         // For now, don't use ray differentials
         Ray3f ray = ray_;
@@ -337,7 +286,7 @@ public:
 
         UInt32 channel = 0;
         if (is_rgb_v<Spectrum>) {
-            auto n_channels = (uint32_t) dr::array_size_v<Spectrum>;
+            auto n_channels = (uint32_t) dr::size_v<Spectrum>;
             channel = (UInt32) dr::minimum(sampler->next_1d(active) * n_channels, n_channels - 1);
         }
 
@@ -350,29 +299,79 @@ public:
         /* Set up a Dr.Jit loop (optimizes away to a normal loop in scalar mode,
            generates wavefront or megakernel renderer based on configuration).
            Register everything that changes as part of the loop here */
-        dr::Loop<Mask> loop("Volpath integrator",
-                            /* loop state: */ active, depth, ray, throughput,
-                            result, si, mei, medium, eta, last_scatter_event,
-                            last_scatter_direction_pdf, needs_intersection,
-                            specular_chain, valid_ray, sampler);
+        struct LoopState {
+            Mask active;
+            UInt32 depth;
+            Ray3f ray;
+            Spectrum throughput;
+            Spectrum result;
+            SurfaceInteraction3f si;
+            MediumInteraction3f mei;
+            MediumPtr medium;
+            Float eta;
+            Interaction3f last_scatter_event;
+            Float last_scatter_direction_pdf;
+            Mask needs_intersection;
+            Mask specular_chain;
+            Mask valid_ray;
+            Sampler* sampler;
 
-        while (loop(active)) {
+            DRJIT_STRUCT(LoopState, active, depth, ray, throughput, result, \
+                si, mei, medium, eta, last_scatter_event, \
+                last_scatter_direction_pdf, needs_intersection, \
+                specular_chain, valid_ray, sampler)
+        } ls = {
+            active,
+            depth,
+            ray,
+            throughput,
+            result,
+            si,
+            mei,
+            medium,
+            eta,
+            last_scatter_event,
+            last_scatter_direction_pdf,
+            needs_intersection,
+            specular_chain,
+            valid_ray,
+            sampler
+        };
+
+        dr::tie(ls) = dr::while_loop(dr::make_tuple(ls),
+            [](const LoopState& ls) { return ls.active; },
+            [this, scene, channel](LoopState& ls) {
+
+            Mask& active = ls.active;
+            UInt32& depth = ls.depth;
+            Ray3f& ray = ls.ray;
+            Spectrum& throughput = ls.throughput;
+            Spectrum& result = ls.result;
+            SurfaceInteraction3f& si = ls.si;
+            MediumInteraction3f& mei = ls.mei;
+            MediumPtr& medium = ls.medium;
+            Float& eta = ls.eta;
+            Interaction3f& last_scatter_event = ls.last_scatter_event;
+            Float& last_scatter_direction_pdf = ls.last_scatter_direction_pdf;
+            Mask& needs_intersection = ls.needs_intersection;
+            Mask& specular_chain = ls.specular_chain;
+            Mask& valid_ray = ls.valid_ray;
+            Sampler* sampler = ls.sampler;
+
             // ----------------- Handle termination of paths ------------------
             // Russian roulette: try to keep path weights equal to one, while accounting for the
             // solid angle compression at refractive index boundaries. Stop with at least some
             // probability to avoid  getting stuck (e.g. due to total internal reflection)
-            active &= dr::any(dr::neq(unpolarized_spectrum(throughput), 0.f));
-            Float q = dr::minimum(dr::max(unpolarized_spectrum(throughput)) * dr::sqr(eta), .95f);
+            active &= dr::any(unpolarized_spectrum(throughput) != 0.f);
+            Float q = dr::minimum(dr::max(unpolarized_spectrum(throughput)) * dr::square(eta), .95f);
             Mask perform_rr = (depth > (uint32_t) m_rr_depth);
             active &= sampler->next_1d(active) < q || !perform_rr;
             dr::masked(throughput, perform_rr) *= dr::rcp(dr::detach(q));
 
             active &= depth < (uint32_t) m_max_depth;
-            if (dr::none_or<false>(active))
-                break;
 
             // ----------------------- Sampling the RTE -----------------------
-            Mask active_medium  = active && dr::neq(medium, nullptr);
+            Mask active_medium  = active && (medium != nullptr);
             Mask active_surface = active && !active_medium;
             Mask act_medium_scatter = false, escaped_medium = false;
 
@@ -415,30 +414,60 @@ public:
                 }
                 dr::masked(dt, iteration_mask && dt > max_flight_distance - mei.t) = max_flight_distance - mei.t;
 
-                const rk_df_type df_opt_backward = [&ray, &mei, &max_flight_distance](const Spectrum&, const Float& dt_in, const Mask& active_dt) {
-                    dr::masked(mei.p, active_dt) = ray(max_flight_distance - (mei.t + dt_in));
-                    auto [sigma_s, sigma_n, sigma_t] = mei.medium->get_scattering_coefficients(mei, active_dt);
-                    return sigma_t;
-                };
+                struct LoopStateTraversal {
+                    Mask iteration_mask;
+                    Ray3f ray;
+                    Float dt;
+                    MediumInteraction3f mei;
+                    MediumPtr medium;
+                    Spectrum full_path_radiance;
+                    Spectrum optical_depth;
+                    Float max_flight_distance;
 
-                const rk_df_type df_opt_forward = [&ray, &mei](const Spectrum&, const Float& dt_in, const Mask& active_dt) {
-                    dr::masked(mei.p, active_dt) = ray(mei.t + dt_in);
-                    auto [sigma_s, sigma_n, sigma_t] = mei.medium->get_scattering_coefficients(mei, active_dt);
-                    return sigma_t;
+                    DRJIT_STRUCT(LoopStateTraversal, iteration_mask, ray, \
+                                  dt, mei, medium, full_path_radiance, \
+                                  optical_depth, max_flight_distance)
+                } ls_traversal = {
+                    iteration_mask = iteration_mask,
+                    ray = ray,
+                    dt = dt,
+                    mei = mei,
+                    medium = medium,
+                    full_path_radiance = full_path_radiance,
+                    optical_depth = optical_depth,
+                    max_flight_distance = max_flight_distance
                 };
+                dr::tie(ls_traversal) = dr::while_loop(dr::make_tuple(ls_traversal),
+                        [](const LoopStateTraversal& ls_traversal) { return dr::detach(ls_traversal.iteration_mask); },
+                        [this, scene, channel](LoopStateTraversal& ls_traversal) {
+                    auto& iteration_mask = ls_traversal.iteration_mask;
+                    auto& ray = ls_traversal.ray;
+                    auto& dt = ls_traversal.dt;
+                    auto& mei = ls_traversal.mei;
+                    auto& medium = ls_traversal.medium;
+                    auto& full_path_radiance = ls_traversal.full_path_radiance;
+                    auto& optical_depth = ls_traversal.optical_depth;
+                    auto& max_flight_distance = ls_traversal.max_flight_distance;
 
-                const rk_df_type df_rad = [&ray, &mei, &max_flight_distance](const Spectrum& y, const Float& dt_in, const Mask& active_dt) {
-                    dr::masked(mei.p, active_dt) = ray(max_flight_distance - (mei.t + dt_in));
-                    auto [sigma_s, sigma_n, sigma_t] = mei.medium->get_scattering_coefficients(mei, active_dt);
-                    auto radiance = mei.medium->get_radiance(mei, active_dt);
-                    return -sigma_t*y + radiance;
-                };
+                    rk_df_type df_opt_backward = [max_flight_distance](MediumInteraction3f& mei, Ray3f ray, const Spectrum&, const Float& dt_in, const Mask& active_dt) {
+                        dr::masked(mei.p, active_dt) = ray(max_flight_distance - (mei.t + dt_in));
+                        auto [sigma_s, sigma_n, sigma_t] = mei.medium->get_scattering_coefficients(mei, active_dt);
+                        return sigma_t;
+                    };
 
-                dr::Loop<Mask> loop_march("VolpathMarch[medium traversal]",
-                                          /* loop state: */ iteration_mask, ray,
-                                          dt, mei, medium, full_path_radiance,
-                                          optical_depth, max_flight_distance);
-                while (loop_march(iteration_mask)) {
+                    rk_df_type df_opt_forward = [](MediumInteraction3f& mei, Ray3f ray, const Spectrum&, const Float& dt_in, const Mask& active_dt) {
+                        dr::masked(mei.p, active_dt) = ray(mei.t + dt_in);
+                        auto [sigma_s, sigma_n, sigma_t] = mei.medium->get_scattering_coefficients(mei, active_dt);
+                        return sigma_t;
+                    };
+
+                    rk_df_type df_rad = [max_flight_distance](MediumInteraction3f& mei, Ray3f ray, const Spectrum& y, const Float& dt_in, const Mask& active_dt) {
+                        dr::masked(mei.p, active_dt) = ray(max_flight_distance - (mei.t + dt_in));
+                        auto [sigma_s, sigma_n, sigma_t] = mei.medium->get_scattering_coefficients(mei, active_dt);
+                        auto radiance = mei.medium->get_radiance(mei, active_dt);
+                        return -sigma_t*y + radiance;
+                    };
+
                     auto [next_depth, curr_dt_opt, next_dt_opt] = integration_step_rk(df_opt_backward, ray, mei, optical_depth, dt, iteration_mask && !medium->is_homogeneous(), false, true);
                     auto [next_radiance, curr_dt, next_dt] = integration_step_rk(df_rad, ray, mei, full_path_radiance, curr_dt_opt, iteration_mask, false, false);
 
@@ -460,10 +489,13 @@ public:
                     // Update iteration mask
                     // Marching should end when we exceed distance to the next surface
                     iteration_mask &= mei.t < max_flight_distance;
-                }
-                dr::masked(mei.t, active_medium) = max_flight_distance;
+                }, "VolpathMarch[medium traversal]");
+
+                dr::masked(optical_depth, active_medium) = ls_traversal.optical_depth;
+                dr::masked(mei, active_medium) = ls_traversal.mei;
+                dr::masked(mei.t, active_medium) = ls_traversal.max_flight_distance;
                 // Low accuracy (i.e. the RK tolerance is large) estimates may lead to negative values even though emission is strictly positive
-                full_path_radiance = dr::clamp(full_path_radiance, 0.0f, dr::Infinity<Spectrum>);
+                full_path_radiance = dr::clip(ls_traversal.full_path_radiance, 0.0f, dr::Infinity<Spectrum>);
                 dr::masked(full_path_radiance, dr::isnan(full_path_radiance)) = 0.0f;
 
                 auto tr = dr::exp(-optical_depth);
@@ -488,12 +520,57 @@ public:
                 dr::masked(mei.p, active_medium) = ray(mei.t);
                 Mask reached_depth = false;
 
-                dr::Loop<Mask> loop_march_scatter("VolpathMarch[scatter point sampling]",
-                              /* loop state: */   iteration_mask, ray,
-                                                  dt, mei, medium, reached_depth,
-                                                  optical_depth, desired_depth,
-                                                  max_flight_distance);
-                while (loop_march_scatter(iteration_mask)) {
+                struct LoopStateSample {
+                    Mask iteration_mask;
+                    Mask reached_depth;
+                    Ray3f ray;
+                    Float dt;
+                    MediumInteraction3f mei;
+                    Spectrum optical_depth;
+                    Float desired_depth;
+                    Float max_flight_distance;
+                    Mask active_medium;
+                    UInt32 depth;
+
+                    DRJIT_STRUCT(LoopStateSample, iteration_mask, reached_depth, \
+                            ray, dt, mei, optical_depth, \
+                            desired_depth, max_flight_distance, active_medium, depth)
+                } ls_point_sample = {
+                    iteration_mask = iteration_mask,
+                    reached_depth = reached_depth,
+                    ray = ray,
+                    dt = dt,
+                    mei = mei,
+                    optical_depth = optical_depth,
+                    desired_depth = desired_depth,
+                    max_flight_distance = max_flight_distance,
+                    active_medium = active_medium,
+                    depth = depth
+                };
+                dr::tie(ls_point_sample) = dr::while_loop(dr::make_tuple(ls_point_sample),
+                        [](const LoopStateSample& ls_point_sample) { return dr::detach(ls_point_sample.iteration_mask); },
+                        [this, scene, channel](LoopStateSample& ls_point_sample) {
+                    auto& iteration_mask = ls_point_sample.iteration_mask;
+                    auto& reached_depth = ls_point_sample.reached_depth;
+                    auto& ray = ls_point_sample.ray;
+                    auto& dt = ls_point_sample.dt;
+                    auto& mei = ls_point_sample.mei;
+                    auto& optical_depth = ls_point_sample.optical_depth;
+                    auto& desired_depth = ls_point_sample.desired_depth;
+                    auto& max_flight_distance = ls_point_sample.max_flight_distance;
+
+                    rk_df_type df_opt_backward = [max_flight_distance](MediumInteraction3f& mei, Ray3f ray, const Spectrum&, const Float& dt_in, const Mask& active_dt) {
+                        dr::masked(mei.p, active_dt) = ray(max_flight_distance - (mei.t + dt_in));
+                        auto [sigma_s, sigma_n, sigma_t] = mei.medium->get_scattering_coefficients(mei, active_dt);
+                        return sigma_t;
+                    };
+
+                    rk_df_type df_opt_forward = [](MediumInteraction3f& mei, Ray3f ray, const Spectrum&, const Float& dt_in, const Mask& active_dt) {
+                        dr::masked(mei.p, active_dt) = ray(mei.t + dt_in);
+                        auto [sigma_s, sigma_n, sigma_t] = mei.medium->get_scattering_coefficients(mei, active_dt);
+                        return sigma_t;
+                    };
+
                     auto [next_depth, curr_dt, next_dt] = integration_step_rk(df_opt_forward, ray, mei, optical_depth, dt, iteration_mask, false, true);
                     if constexpr (!dr::is_jit_v<Float>)
                         Log(Trace, "Depth: %s ~ d|Depth|: %s ~ dt: %s ~ ndt: %s", optical_depth, next_depth, curr_dt, next_dt);
@@ -503,10 +580,10 @@ public:
                     // If we do, find the point between this point and the last point that reaches the desired density
                     // The desired density and the obtained density may differ since we sample the density at the point we interpolate to
                     // And if the step size is larger than 2x the mean grid spacing then this can be quite different
-                    auto residual_depth = desired_depth - index_spectrum(unpolarized_spectrum(optical_depth + next_depth), channel);
-                    reached_depth |= dr::eq(residual_depth, 0.0f);
+                    Float residual_depth = desired_depth - index_spectrum(unpolarized_spectrum(optical_depth + next_depth), channel);
+                    reached_depth |= residual_depth == 0.0f;
 
-                    if (Mask correct_depth = iteration_mask && residual_depth < 0.0f; dr::any_or<true>(correct_depth)) {
+                    if (Mask correct_depth = iteration_mask && (residual_depth < 0.0f);dr::any_or<true>(correct_depth)) {
                         Mask not_found_depth = correct_depth;
                         reached_depth |= correct_depth;
                         UInt32 niter = 0;
@@ -517,12 +594,54 @@ public:
                         auto b_depth = dr::zeros<Spectrum>();
                         auto b_dt = dr::zeros<Float>();
                         auto b_ndt = next_dt;
-                        dr::Loop<Mask> loop_bisect_optical("VolpathMarch[optical depth bisection]",
-                                                           not_found_depth, mei, si, ray, medium, depth,
-                                                           b_depth, b_dt, b_ndt, niter,
-                                                           a_depth, a_dt, a_ndt, desired_depth);
-                        loop_bisect_optical.set_max_iterations(64);
-                        while (loop_bisect_optical(not_found_depth)) {
+
+                        struct LoopStateBisect {
+                            Spectrum a_depth;
+                            Float a_dt;
+                            Float a_ndt;
+                            Spectrum b_depth;
+                            Float b_dt;
+                            Float b_ndt;
+                            UInt32 niter;
+                            Ray3f ray;
+                            Mask not_found_depth;
+                            MediumInteraction3f mei;
+                            Spectrum optical_depth;
+                            Float desired_depth;
+
+                            DRJIT_STRUCT(LoopStateBisect, a_depth, a_dt, a_ndt, b_depth, b_dt, b_ndt, \
+                                                          niter, ray, not_found_depth, \
+                                                          mei, optical_depth, desired_depth)
+                        } ls_bisect = {
+                            a_depth = a_depth,
+                            a_dt = a_dt,
+                            a_ndt = a_ndt,
+                            b_depth = b_depth,
+                            b_dt = b_dt,
+                            b_ndt = b_ndt,
+                            niter = niter,
+                            ray = ray,
+                            not_found_depth = not_found_depth,
+                            mei = mei,
+                            optical_depth = optical_depth,
+                            desired_depth = desired_depth,
+                        };
+                        dr::tie(ls_bisect) = dr::while_loop(dr::make_tuple(ls_bisect),
+                                [](const LoopStateBisect& ls_bisect) { return dr::detach(ls_bisect.not_found_depth); },
+                                [this, scene, channel, &df_opt_forward](LoopStateBisect& ls_bisect) {
+                            auto& a_depth = ls_bisect.a_depth;
+                            auto& a_dt = ls_bisect.a_dt;
+                            auto& a_ndt = ls_bisect.a_ndt;
+                            auto& b_depth = ls_bisect.b_depth;
+                            auto& b_dt = ls_bisect.b_dt;
+                            auto& b_ndt = ls_bisect.b_ndt;
+                            auto& niter = ls_bisect.niter;
+                            auto& ray = ls_bisect.ray;
+                            auto& not_found_depth = ls_bisect.not_found_depth;
+                            auto& mei = ls_bisect.mei;
+                            auto& optical_depth = ls_bisect.optical_depth;
+                            auto& desired_depth = ls_bisect.desired_depth;
+
                             // Float interval_min = index_spectrum(unpolarized_spectrum(b_depth), channel);
                             // Float interval_range = index_spectrum(unpolarized_spectrum(a_depth - b_depth), channel);
                             // Float half_step = (dr::detach(a_dt) - dr::detach(b_dt)) * (residual_depth - interval_min) / interval_range + dr::detach(b_dt);
@@ -540,16 +659,18 @@ public:
 
                             ++niter;
                             not_found_depth &= index_spectrum(dr::abs(unpolarized_spectrum(a_depth - b_depth)), channel) >= dr::select(index_spectrum(mei.sigma_t, channel) > 0.0f, 5000.0f, 5.0f) * dr::Epsilon<Float> * (1.0f + desired_depth) && niter < 64;
-                        }
-                        auto mid_depth = (a_depth + b_depth) * 0.5f;
-                        auto mid_dt = (a_dt + b_dt) * 0.5f;
-                        auto mid_ndt = (a_ndt + b_ndt) * 0.5f;
+                        }, "VolpathMarch[optical depth bisection]");
+
+                        auto mid_depth = (ls_bisect.a_depth + ls_bisect.b_depth) * 0.5f;
+                        auto mid_dt = (ls_bisect.a_dt + ls_bisect.b_dt) * 0.5f;
+                        auto mid_ndt = (ls_bisect.a_ndt + ls_bisect.b_ndt) * 0.5f;
+
                         // Four iterations of Newton's method to polish the root found in the earlier bisection
                         // This should be quadratic convergence so by trading off some precision in the bisection we gain
                         // a big improvement here
                         for (auto iter_count = 0; iter_count < 4; iter_count++ ) {
                             dr::masked(residual_depth, correct_depth) = desired_depth - index_spectrum(unpolarized_spectrum(optical_depth + mid_depth), channel);
-                            mid_dt = dr::clamp(mid_dt - residual_depth/index_spectrum(-unpolarized_spectrum(df_opt_forward(optical_depth, mid_dt, correct_depth)), channel), b_dt, a_dt);
+                            mid_dt = dr::clip(mid_dt - residual_depth/index_spectrum(-unpolarized_spectrum(df_opt_forward(mei, ray, optical_depth, mid_dt, correct_depth)), channel), b_dt, a_dt);
                             auto [n_depth, n_dt, n_ndt] = integration_step_rk(df_opt_forward, ray, mei, optical_depth, mid_dt, correct_depth, true, true);
                             auto is_improvement = !(dr::isnan(index_spectrum(unpolarized_spectrum(n_depth), channel)) || dr::isinf(index_spectrum(unpolarized_spectrum(n_depth), channel))) && dr::abs(desired_depth - index_spectrum(unpolarized_spectrum(optical_depth + n_depth), channel)) < dr::abs(residual_depth);
                             dr::masked(mid_depth, correct_depth && is_improvement) = n_depth;
@@ -564,6 +685,7 @@ public:
                         dr::masked(curr_dt, correct_depth) = mid_dt;
                         dr::masked(next_dt, correct_depth) = mid_ndt;
                     }
+
                     // ------------------------------------------------------- //
 
                     // Update accumulators and ray position
@@ -577,8 +699,11 @@ public:
                     // Update iteration mask
                     // Marching should end when either throughput falls below sampled throughput or we exceed distance to the next surface
                     iteration_mask &= mei.t < max_flight_distance && !reached_depth;
-                }
-                dr::masked(optical_depth, active_medium && !reached_depth) = -dr::log(tr);
+                }, "VolpathMarch[scatter point sample]");
+
+                dr::masked(optical_depth, active_medium) = ls_point_sample.optical_depth;
+                dr::masked(mei, active_medium) = ls_point_sample.mei;
+                dr::masked(optical_depth, active_medium && !ls_point_sample.reached_depth) = -dr::log(tr);
                 std::tie(mei.sigma_s, mei.sigma_n, mei.sigma_t) = medium->get_scattering_coefficients(mei, active_medium);
 
                 auto radiance = medium->get_radiance(mei, active_medium);
@@ -602,27 +727,27 @@ public:
                 Float tr_pdf = index_spectrum(unpolarized_spectrum(path_pdf), channel);
 
                 // ---------------- Intersection with emitters ----------------
-                Mask ray_from_camera_medium = active_medium && dr::eq(depth, 0u);
+                Mask ray_from_camera_medium = active_medium && depth == 0u;
                 Mask count_direct_medium = ray_from_camera_medium || specular_chain;
                 EmitterPtr emitter_medium = mei.emitter(active_medium);
-
-                if (Mask active_medium_e = active_medium && dr::neq(emitter_medium, nullptr) && !(dr::eq(depth, 0u) && m_hide_emitters)
-                                && (m_use_uni_sampling || count_direct_medium); dr::any_or<true>(active_medium_e)) {
-                    Mask nonzero_density = dr::neq(dr::detach(dr::mean(unpolarized_spectrum(optical_depth))), 0.0f);
-                    Mask optically_thin_medium = active_medium_e && !((medium->is_homogeneous() && nonzero_density) || !medium->is_homogeneous());
-                    Float emitter_pdf = m_use_emitter_sampling ? 1.0f : 0.0f;
-                    dr::masked(emitter_pdf, optically_thin_medium) = 0.0f;
+                Mask active_medium_e = active_medium && (emitter_medium != nullptr) &&
+                                       !(depth == 0u && m_hide_emitters);
+                if (dr::any_or<true>(active_medium_e)) {
                     Spectrum weight = 1.0f;
-                    if (m_use_emitter_sampling && dr::any_or<true>(active_medium_e && !count_direct_medium)) {
+                    Mask nonzero_density = (dr::detach(dr::mean(unpolarized_spectrum(optical_depth))) != 0.0f);
+                    Mask optically_thin_medium = active_medium_e && !((medium->is_homogeneous() && nonzero_density) || !medium->is_homogeneous());
+                    if (!m_use_uni_sampling && m_use_emitter_sampling) {
+                        dr::masked(weight, active_medium_e && !count_direct_medium) *= 0.0f;
+                    } else if (m_use_uni_sampling && m_use_emitter_sampling) {
                         DirectionSample3f ds(mei, last_scatter_event);
-                        dr::masked(emitter_pdf, active_medium_e && !optically_thin_medium && !count_direct_medium) = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e && !optically_thin_medium);
-
-                        // Get the PDF of sampling this emitter using next event estimation
-                        dr::masked(weight, !count_direct_medium) *= mis_weight(last_scatter_direction_pdf, emitter_pdf);
+                        Float emitter_pdf = scene->pdf_emitter_direction(last_scatter_event, ds, active_medium_e && !optically_thin_medium);
+                        Float scatter_pdf = last_scatter_direction_pdf;
+                        dr::masked(weight, active_medium_e && !optically_thin_medium && !count_direct_medium) *= mis_weight(scatter_pdf, emitter_pdf);
                     }
                     auto contrib = dr::select(sample_scattering, 0.0f, full_path_radiance);
                     dr::masked(result, active_medium_e) += weight * throughput * dr::select(tr_pdf > 0.0f, contrib / tr_pdf, 0.0f);
                 }
+
                 dr::masked(throughput, active_medium) *= dr::select(tr_pdf > 0.f, tr / tr_pdf, 0.f);
 
                 dr::masked(ray.o, active_medium && !sample_scattering) = mei.p;
@@ -659,11 +784,7 @@ public:
                         if (dr::any_or<true>(active_e)) {
                             auto [emitted, ds] = sample_emitter(mei, scene, sampler, medium, channel, active_e);
                             auto [phase_val, phase_pdf] = phase->eval_pdf(phase_ctx, mei, ds.d, active_e);
-                            auto weight = dr::select(
-                                m_use_uni_sampling,
-                                mis_weight(ds.pdf, dr::select(ds.delta, 0.f, phase_pdf)),
-                                1.0f
-                            );
+                            auto weight = (m_use_uni_sampling ? mis_weight(ds.pdf, dr::select(ds.delta, 0.0f, phase_pdf)) : 1.0f);
                             dr::masked(result, active_e) += weight * throughput * phase_val * emitted;
                         }
                     }
@@ -685,30 +806,29 @@ public:
 
             // --------------------- Surface Interactions ---------------------
             active_surface |= escaped_medium;
-            if (Mask intersect = active_surface && needs_intersection; dr::any_or<true>(intersect))
+            Mask intersect = active_surface && needs_intersection;
+            if (dr::any_or<true>(intersect))
                 dr::masked(si, intersect) = scene->ray_intersect(ray, intersect);
 
             if (dr::any_or<true>(active_surface)) {
                 // ---------------- Intersection with emitters ----------------
-                Mask ray_from_camera = active_surface && dr::eq(depth, 0u);
+                Mask ray_from_camera = active_surface && (depth == 0u);
                 Mask count_direct = ray_from_camera || specular_chain;
                 EmitterPtr emitter = si.emitter(scene);
-                Mask active_e = active_surface && dr::neq(emitter, nullptr)
-                                && !(dr::eq(depth, 0u) && m_hide_emitters)
-                                && !has_flag(emitter->flags(), EmitterFlags::Medium)
-                                && (m_use_uni_sampling || count_direct); // Ignore any medium emitters as this simply looks at surface emitters
+                Mask active_e = active_surface && emitter != nullptr
+                                && !((depth == 0u) && m_hide_emitters); // Ignore any medium emitters as this simply looks at surface emitters
                 if (dr::any_or<true>(active_e)) {
-                    Float emitter_pdf = (m_use_emitter_sampling ? 1.0f : 0.0f);
-                    if (m_use_emitter_sampling && dr::any_or<true>(active_e && !count_direct)) {
-                        // Get the PDF of sampling this emitter using next event estimation
+                    Spectrum weight = 1.0f;
+                    // Get the PDF of sampling this emitter using next event estimation
+                    if (!m_use_uni_sampling && m_use_emitter_sampling) {
+                        dr::masked(weight, active_e && !count_direct) *= 0.0f;
+                    } else if (m_use_uni_sampling && m_use_emitter_sampling) {
                         DirectionSample3f ds(scene, si, last_scatter_event);
-                        dr::masked(emitter_pdf, active_e && !count_direct) = scene->pdf_emitter_direction(last_scatter_event, ds, active_e);
+                        Float emitter_pdf = scene->pdf_emitter_direction(last_scatter_event, ds, active_e);
+                        Float scatter_pdf = last_scatter_direction_pdf;
+                        dr::masked(weight, active_e && !count_direct) *= mis_weight(scatter_pdf, emitter_pdf);
                     }
-
-                    Spectrum emitted = emitter->eval(si, active_e);
-                    Spectrum contrib = dr::select(count_direct, throughput * emitted,
-                                                  throughput * mis_weight(last_scatter_direction_pdf, emitter_pdf) * emitted);
-                    dr::masked(result, active_e) += contrib;
+                    dr::masked(result, active_e) += weight * throughput * emitter->eval(si, active_e);
                 }
             }
             active_surface &= si.is_valid();
@@ -731,7 +851,8 @@ public:
                         // Determine probability of having sampled that same
                         // direction using BSDF sampling.
                         Float bsdf_pdf = bsdf->pdf(ctx, si, wo, active_e);
-                        result[active_e] += throughput * bsdf_val * mis_weight(ds.pdf, dr::select(ds.delta, 0.f, bsdf_pdf)) * emitted;
+                        auto weight = (m_use_uni_sampling ? mis_weight(ds.pdf, dr::select(ds.delta, 0.0f, bsdf_pdf)) : 1.0f);
+                        result[active_e] += weight * throughput * bsdf_val * emitted;
                     }
                 }
 
@@ -761,8 +882,9 @@ public:
                 dr::masked(medium, has_medium_trans) = si.target_medium(ray.d);
             }
             active &= (active_surface | active_medium);
-        }
-        return { result, valid_ray };
+        }, "VolpathRaymarching integrator");
+
+        return { ls.result, ls.valid_ray };
     }
 
 
@@ -777,8 +899,8 @@ public:
         /// We conservatively assume that there are volume emitters in the scene and sample 3d points instead of 2d
         /// This leads to some inefficiencies due to the fact that an extra random number per is generated and unused.
         auto [ds, emitter_val] = scene->sample_emitter_direction(ref_interaction, sampler->next_3d(active), false, active);
-        dr::masked(emitter_val, dr::eq(ds.pdf, 0.f)) = 0.f;
-        active &= dr::neq(ds.pdf, 0.f);
+        dr::masked(emitter_val, ds.pdf == 0.f) = 0.f;
+        active &= (ds.pdf != 0.f);
 
         Mask is_medium_emitter = active && has_flag(ds.emitter->flags(), EmitterFlags::Medium);
         dr::masked(emitter_val, is_medium_emitter) = 0.0f;
@@ -799,20 +921,62 @@ public:
         auto mei = dr::zeros<MediumInteraction3f>();
         Mask needs_intersection = true;
 
-        dr::Loop<Mask> loop("Volpath integrator emitter sampling");
-        loop.put(active, ray, total_dist, needs_intersection, medium, si,
-                 mei, transmittance, emitter_val);
-        sampler->loop_put(loop);
-        loop.init();
-        while (loop(active)) {
+        struct LoopState {
+            Mask active;
+            Ray3f ray;
+            Float total_dist;
+            Spectrum emitter_val;
+            Mask needs_intersection;
+            Mask is_medium_emitter;
+            MediumPtr medium;
+            SurfaceInteraction3f si;
+            MediumInteraction3f mei;
+            Spectrum transmittance;
+            DirectionSample3f dir_sample;
+            Sampler* sampler;
+
+            DRJIT_STRUCT(LoopState, active, ray, total_dist, emitter_val, \
+                needs_intersection, is_medium_emitter, medium, si, mei, \
+                transmittance, dir_sample, sampler)
+        } ls = {
+            active,
+            ray,
+            total_dist,
+            emitter_val,
+            needs_intersection,
+            is_medium_emitter,
+            medium,
+            si,
+            mei,
+            transmittance,
+            ds,
+            sampler
+        };
+
+        dr::tie(ls) = dr::while_loop(dr::make_tuple(ls),
+            [](const LoopState& ls) { return dr::detach(ls.active); },
+            [this, scene, channel, max_dist, is_medium_emitter](LoopState& ls) {
+
+            Mask& active = ls.active;
+            Ray3f& ray = ls.ray;
+            Float& total_dist = ls.total_dist;
+            Spectrum& emitter_val = ls.emitter_val;
+            Mask& needs_intersection = ls.needs_intersection;
+            MediumPtr& medium = ls.medium;
+            SurfaceInteraction3f& si = ls.si;
+            MediumInteraction3f& mei = ls.mei;
+            Spectrum& transmittance = ls.transmittance;
+            DirectionSample3f& dir_sample = ls.dir_sample;
+            Sampler* sampler = ls.sampler;
+
             Float remaining_dist = max_dist - total_dist;
             ray.maxt = remaining_dist;
             active &= remaining_dist > 0.f;
             if (dr::none_or<false>(active))
-                break;
+                return;
 
             Mask escaped_medium = false;
-            Mask active_medium  = active && dr::neq(medium, nullptr);
+            Mask active_medium  = active && (medium != nullptr);
             Mask active_surface = active && !active_medium;
 
             if (dr::any_or<true>(active_medium)) {
@@ -825,36 +989,47 @@ public:
                 dr::masked(mei.t, active_medium && (si.t < mei.t)) = dr::Infinity<Float>;
                 needs_intersection &= !active_medium;
 
-                Float t      = dr::minimum(remaining_dist, dr::minimum(mei.t, si.t)) - mei.mint;
-                UnpolarizedSpectrum tr  = dr::exp(-t * mei.combined_extinction);
-                UnpolarizedSpectrum free_flight_pdf = dr::select(si.t < mei.t || mei.t > remaining_dist, tr, tr * mei.combined_extinction);
-                Float tr_pdf = index_spectrum(free_flight_pdf, channel);
-                dr::masked(transmittance, active_medium) *= dr::select(tr_pdf > 0.f, tr / tr_pdf, 0.f);
+                EmitterPtr medium_em = mei.emitter(active_medium);
+                Mask is_sampled_medium = active_medium && (medium_em == dir_sample.emitter) && is_medium_emitter;
+
+                Mask is_spectral = active_medium && medium->has_spectral_extinction();
+                Mask not_spectral = !is_spectral && active_medium;
+                if (dr::any_or<true>(is_spectral)) {
+                    Float t      = dr::minimum(remaining_dist, dr::minimum(mei.t, si.t)) - mei.mint;
+                    UnpolarizedSpectrum tr  = dr::exp(-t * mei.combined_extinction);
+                    UnpolarizedSpectrum free_flight_pdf = dr::select(si.t < mei.t || mei.t > remaining_dist, tr, tr * mei.combined_extinction);
+                    Float tr_pdf = index_spectrum(free_flight_pdf, channel);
+                    dr::masked(transmittance, is_spectral) *= dr::select(tr_pdf > 0.f, tr / tr_pdf, 0.f);
+                }
 
                 // Handle exceeding the maximum distance by medium sampling
-                dr::masked(total_dist, active_medium && (mei.t > remaining_dist) && mei.is_valid()) = ds.dist;
+                dr::masked(total_dist, active_medium && (mei.t > remaining_dist) && mei.is_valid()) = dir_sample.dist;
                 dr::masked(mei.t, active_medium && (mei.t > remaining_dist)) = dr::Infinity<Float>;
 
                 escaped_medium = active_medium && !mei.is_valid();
                 active_medium &= mei.is_valid();
 
-                EmitterPtr medium_em = mei.emitter(active_medium);
-                Mask is_sampled_medium = active_medium && dr::eq(medium_em, ds.emitter) && is_medium_emitter;
+                is_sampled_medium &= active_medium;
                 if (dr::any_or<true>(is_sampled_medium)) {
                     PositionSample3f ps(mei);
-                    auto radiance = medium->get_radiance(mei, active_medium);
-                    dr::masked(emitter_val, is_sampled_medium) += transmittance * radiance * dr::rcp(ds.pdf);
+                    auto radiance = dr::select(is_sampled_medium, mei.radiance, 0.0);
+                    dr::masked(emitter_val, is_sampled_medium) += transmittance * radiance * dr::rcp(dir_sample.pdf);
                 }
 
                 dr::masked(mei, escaped_medium) = dr::zeros<MediumInteraction3f>();
-
                 dr::masked(total_dist, active_medium) += mei.t;
+
+                is_spectral  &= active_medium;
+                not_spectral &= active_medium;
 
                 if (dr::any_or<true>(active_medium)) {
                     dr::masked(ray.o, active_medium) = mei.p;
                     dr::masked(si.t, active_medium)  = si.t - mei.t;
 
-                    dr::masked(transmittance, active_medium) *= mei.sigma_n;
+                    if (dr::any_or<true>(is_spectral))
+                        dr::masked(transmittance, is_spectral) *= mei.sigma_n;
+                    if (dr::any_or<true>(not_spectral))
+                        dr::masked(transmittance, not_spectral) *= mei.sigma_n / mei.combined_extinction;
                 }
             }
 
@@ -875,28 +1050,29 @@ public:
             }
 
             // Update the ray with new origin & t parameter
-            dr::masked(ray, active_surface) = si.spawn_ray(ray.d);
+            dr::masked(ray, active_surface) = si.spawn_ray_to(dir_sample.p);
             ray.maxt = remaining_dist;
             needs_intersection |= active_surface;
 
             // Continue tracing through scene if non-zero weights exist
-            active &= (active_medium || active_surface) && dr::any(dr::neq(unpolarized_spectrum(transmittance), 0.f));
+            active &= (active_medium || active_surface) &&
+                      dr::any(unpolarized_spectrum(transmittance) != 0.f);
 
             // If a medium transition is taking place: Update the medium pointer
             Mask has_medium_trans = active_surface && si.is_medium_transition();
             if (dr::any_or<true>(has_medium_trans)) {
                 dr::masked(medium, has_medium_trans) = si.target_medium(ray.d);
             }
-        }
+        }, "VolpathMarch [emitter sampling]");
 
-        return {dr::select(is_medium_emitter, emitter_val, emitter_val * transmittance), ds };
+        return {dr::select(is_medium_emitter, ls.emitter_val, ls.emitter_val * ls.transmittance), ls.dir_sample};
     }
 
     //! @}
     // =============================================================
 
     std::string to_string() const override {
-        return tfm::format("VolumetricSimplePathIntegrator[\n"
+        return tfm::format("VolumetricRaymarchingIntegrator[\n"
                            "  max_depth = %i,\n"
                            "  rr_depth = %i\n"
                            "]",

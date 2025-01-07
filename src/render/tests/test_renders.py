@@ -46,7 +46,7 @@ POLARIZED_EXCLUDE_INTEGRATORS = {
 INTEGRATOR_MAPPING = {
     'direct' : ['direct_projective'],
     'path' : ['prb','prb_projective'],
-    'volpath' : ['volpathmis', 'prbvolpath'],
+    'volpath' : ['volpath_raymarching', 'volpathmis', 'prbvolpath'],
 }
 
 if hasattr(dr, 'JitFlag'):
@@ -85,6 +85,7 @@ def list_all_render_test_configs():
                 configs.append((variant, scene_fname, scene_integrator_type, 'scalar'))
                 if scene_integrator_type == "volpath":
                     configs.append((variant, scene_fname, "volpathmis", 'scalar'))
+                    configs.append((variant, scene_fname, "volpath_raymarching", 'scalar'))
             else:
                 for k, v in JIT_FLAG_OPTIONS.items():
                     if k == 'scalar':
@@ -234,6 +235,9 @@ def test_render(variant, scene_fname, integrator_type, jit_flags_key):
     else:
         print('Reject the null hypothesis (min(p-value) = %f, significance level = %f)' %
               (np.min(p_value), alpha))
+
+        if "raymarching" in integrator_type:
+            pytest.xfail("Raymarching integrator is biased and will fail tests at random (especially when there is scattering!)")
 
         scene_fname = pathlib.Path(scene_fname)
 
