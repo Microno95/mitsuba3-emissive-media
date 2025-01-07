@@ -848,7 +848,7 @@ protected:
         }
 
         if (init_max) {
-            m_max = dr::max(values);
+            m_max = dr::max_nested(values);
         }
 
         if (init_distr) {
@@ -884,6 +884,7 @@ protected:
     bool m_accel;
     bool m_raw;
     Float m_mean;
+    ScalarFloat m_max;
     StoredTexture2f m_texture;
 
     // Optional: distribution for importance sampling
