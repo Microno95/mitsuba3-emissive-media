@@ -34,8 +34,8 @@ public:
 
     MI_INLINE UnpolarizedSpectrum eval_impl(const Interaction3f &it, Mask active) const {
         auto local_p = m_to_local * it.p;
-        auto local_R = dr::clamp(dr::sqrt(local_p.x() * local_p.x() + local_p.y() * local_p.y()), 0.0f, 1.0f);
-        auto local_Z = dr::clamp(local_p.z(), 0.0f, 1.0f);
+        auto local_R = dr::clip(dr::sqrt(local_p.x() * local_p.x() + local_p.y() * local_p.y()), 0.0f, 1.0f);
+        auto local_Z = dr::clip(local_p.z(), 0.0f, 1.0f);
 
         auto ps = PositionSample3f(
             it.p,
